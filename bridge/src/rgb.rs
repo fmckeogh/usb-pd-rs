@@ -1,13 +1,4 @@
-use {
-    embedded_hal::digital::v2::PinState,
-    stm32f0xx_hal::{
-        gpio::{
-            gpioa::{Parts, PA5, PA6, PA7},
-            Output, PushPull,
-        },
-        prelude::*,
-    },
-};
+use embedded_hal::digital::v2::{PinState, StatefulOutputPin};
 
 #[derive(Debug, Clone, Copy)]
 pub enum Color {
@@ -36,19 +27,15 @@ impl From<u8> for Color {
     }
 }
 
-pub struct Rgb {
-    red: PA5<Output<PushPull>>,
-    green: PA6<Output<PushPull>>,
-    blue: PA7<Output<PushPull>>,
+pub struct Rgb<R, G, B> {
+    red: R,
+    green: G,
+    blue: B,
 }
 
-impl Rgb {
-    pub fn new(gpioa: Parts) -> Self {
-        cortex_m::interrupt::free(move |cs| Self {
-            red: gpioa.pa5.into_push_pull_output(cs),
-            green: gpioa.pa6.into_push_pull_output(cs),
-            blue: gpioa.pa7.into_push_pull_output(cs),
-        })
+impl<R: StatefulOutputPin, G: StatefulOutputPin, B: StatefulOutputPin> Rgb<R, G, B> {
+    pub fn new(red: R, green: G, blue: B) -> Self {
+        Self { red, green, blue }
     }
 
     pub fn set(&mut self, color: Color) {
@@ -56,9 +43,9 @@ impl Rgb {
     }
 
     fn set_inner(&mut self, value: u8) {
-        self.red.set_state(get_bit(value, 2)).unwrap();
-        self.green.set_state(get_bit(value, 1)).unwrap();
-        self.blue.set_state(get_bit(value, 0)).unwrap();
+        self.red.set_state(get_bit(value, 2)).ok();
+        self.green.set_state(get_bit(value, 1)).ok();
+        self.blue.set_state(get_bit(value, 0)).ok();
     }
 }
 
