@@ -1,3 +1,7 @@
+//! FUSB302B registers
+//!
+//! Setters/getters/clearers generated using macros, `Default` for each register is its reset value.
+
 use {
     crate::Fusb302b,
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
@@ -26,7 +30,7 @@ macro_rules! generate_register_clear {
     ($reg:ident, $fn:ident) => {
         paste::item! {
             pub fn [<clear_ $fn>](&mut self) {
-                self.write_register_raw(Register::$reg as u8, 0);
+                self.write_register_raw(Register::$reg as u8, $reg::default().0);
             }
         }
     };
@@ -138,6 +142,12 @@ bitfield! {
     }
 }
 
+impl Default for DeviceId {
+    fn default() -> Self {
+        Self(0b1001_0000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Switches0(pub u8): Debug, FromRaw, IntoRaw {
@@ -157,6 +167,12 @@ bitfield! {
         pub pdwn2: bool @ 1,
         /// Device pull down on CC1
         pub pdwn1: bool @ 0,
+    }
+}
+
+impl Default for Switches0 {
+    fn default() -> Self {
+        Self(0b0000_0011)
     }
 }
 
@@ -228,18 +244,57 @@ bitfield! {
         pub txcc1: bool @ 0,
     }
 }
+impl Default for Switches1 {
+    fn default() -> Self {
+        Self(0b0010_0000)
+    }
+}
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Measure(pub u8): Debug, FromRaw, IntoRaw {
+        /// false: MDAC/comparator measurement is controlled by MEAS_CC* bits
+        /// true: Measure VBUS with the MDAC/comparator. This requires MEAS_CC* bits to be 0
+        pub meas_vbus: bool @ 6,
+        /// Measure Block DAC data input. LSB is equivalent to 42 mV of voltage which is compared to the measured CC voltage.
+        /// The measured CC is selected by MEAS_CC2, or MEAS_CC1 bits
+        ///
+        /// | `MDAC[5:0]` | `MEAS_VBUS = 0` | `MEAS_VBUS = 1` | Unit |
+        /// |-------------|-----------------|-----------------|------|
+        /// | `00_0000`   | 0.042           | 0.420           | V    |
+        /// | `00_0001`   | 0.084           | 0.840           | V    |
+        /// | `11_0000`   | 2.058           | 20.58           | V    |
+        /// | `11_0011`   | 2.184           | 21.84           | V    |
+        /// | `11_1110`   | 2.646           | 26.46           | V    |
+        /// | `11_1111`   | >2.688          | 26.88           | V    |
+        /// | `11_1111`   | >2.688          | 26.88           | V    |
+        pub mdac: u8 @ 0..=5,
+    }
+}
 
+impl Default for Measure {
+    fn default() -> Self {
+        Self(0b0011_0001)
     }
 }
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Slice(pub u8): Debug, FromRaw, IntoRaw {
+        /// Adds hysteresis where there are now two thresholds, the lower threshold which is always the value programmed by SDAC[5:0] and the higher threshold that is:
+        /// * `11`: 255 mV hysteresis: higher threshold = (SDAC value + 20hex)
+        /// * `10`: 170 mV hysteresis: higher threshold = (SDAC value + Ahex)
+        /// * `01`: 85 mV hysteresis: higher threshold = (SDAC value + 5)
+        /// * `00`: No hysteresis: higher threshold = SDAC value
+        pub sda_hys: u8 @ 6..=7,
+        /// BMC Slicer DAC data input. Allows for a programmable threshold so as to meet the BMC receive mask under all noise conditions.
+        pub sdac: u8 @ 0..=5,
+    }
+}
 
+impl Default for Slice {
+    fn default() -> Self {
+        Self(0b0110_0000)
     }
 }
 
@@ -250,10 +305,22 @@ bitfield! {
     }
 }
 
+impl Default for Control0 {
+    fn default() -> Self {
+        Self(0b0010_0100)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Control1(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for Control1 {
+    fn default() -> Self {
+        Self(0b0000_0000)
     }
 }
 
@@ -264,10 +331,22 @@ bitfield! {
     }
 }
 
+impl Default for Control2 {
+    fn default() -> Self {
+        Self(0b0000_0010)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Control3(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for Control3 {
+    fn default() -> Self {
+        Self(0b0000_0110)
     }
 }
 
@@ -278,10 +357,22 @@ bitfield! {
     }
 }
 
+impl Default for Mask1 {
+    fn default() -> Self {
+        Self(0b0000_0000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Power(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for Power {
+    fn default() -> Self {
+        Self(0b0000_0001)
     }
 }
 
@@ -292,10 +383,22 @@ bitfield! {
     }
 }
 
+impl Default for Reset {
+    fn default() -> Self {
+        Self(0b0000_0000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct OcPreg(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for OcPreg {
+    fn default() -> Self {
+        Self(0b0000_1111)
     }
 }
 
@@ -306,10 +409,22 @@ bitfield! {
     }
 }
 
+impl Default for MaskA {
+    fn default() -> Self {
+        Self(0b0000_0000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct MaskB(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for MaskB {
+    fn default() -> Self {
+        Self(0b0000_0000)
     }
 }
 
@@ -320,10 +435,22 @@ bitfield! {
     }
 }
 
+impl Default for Control4 {
+    fn default() -> Self {
+        Self(0b0000_0000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Status0A(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for Status0A {
+    fn default() -> Self {
+        Self(0b0000_0000)
     }
 }
 
@@ -334,10 +461,22 @@ bitfield! {
     }
 }
 
+impl Default for Status1A {
+    fn default() -> Self {
+        Self(0b0000_0000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct InterruptA(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for InterruptA {
+    fn default() -> Self {
+        Self(0b0000_0000)
     }
 }
 
@@ -348,10 +487,22 @@ bitfield! {
     }
 }
 
+impl Default for InterruptB {
+    fn default() -> Self {
+        Self(0b0000_0000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Status0(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for Status0 {
+    fn default() -> Self {
+        Self(0b0000_0000)
     }
 }
 
@@ -362,6 +513,12 @@ bitfield! {
     }
 }
 
+impl Default for Status1 {
+    fn default() -> Self {
+        Self(0b0010_1000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Interrupt(pub u8): Debug, FromRaw, IntoRaw {
@@ -369,9 +526,21 @@ bitfield! {
     }
 }
 
+impl Default for Interrupt {
+    fn default() -> Self {
+        Self(0b0000_0000)
+    }
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Fifo(pub u8): Debug, FromRaw, IntoRaw {
 
+    }
+}
+
+impl Default for Fifo {
+    fn default() -> Self {
+        Self(0b0000_0000)
     }
 }
