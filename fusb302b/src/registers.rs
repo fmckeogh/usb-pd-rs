@@ -284,7 +284,7 @@ bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Slice(pub u8): Debug, FromRaw, IntoRaw {
         /// Adds hysteresis where there are now two thresholds, the lower threshold which is always
-        /// the value programmed by SDAC[5:0] and the higher threshold that is:
+        /// the value programmed by SDAC\[5:0\] and the higher threshold that is:
         /// * `11`: 255 mV hysteresis: higher threshold = (SDAC value + 20hex)
         /// * `10`: 170 mV hysteresis: higher threshold = (SDAC value + Ahex)
         /// * `01`: 85 mV hysteresis: higher threshold = (SDAC value + 5)
