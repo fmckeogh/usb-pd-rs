@@ -1,22 +1,26 @@
 #![no_main]
 #![no_std]
 
-use {panic_rtt_target as _, rtic::app};
+use {core::panic::PanicInfo, rtic::app};
 
+mod log;
 mod rgb;
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
     use {
-        crate::rgb::{Color, Rgb},
+        crate::{
+            log::init_log,
+            rgb::{Color, Rgb},
+        },
         bitbang_hal::i2c::I2cBB,
         fusb302b::Fusb302b,
-        rtt_target::{rprintln, rtt_init_print},
         stm32f0xx_hal::{
             gpio::{
-                gpioa::{self, PA5, PA6, PA7},
-                Output, PushPull,
+                gpioa::{self, PA10, PA5, PA6, PA7, PA9},
+                OpenDrain, Output, PushPull,
             },
+            pac::TIM3,
             prelude::*,
             timers::Timer,
         },
@@ -24,12 +28,13 @@ mod app {
     };
 
     #[shared]
-    struct Shared {
-        _led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
-    }
+    struct Shared {}
 
     #[local]
-    struct Local {}
+    struct Local {
+        led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
+        pd: Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>,
+    }
 
     #[monotonic(binds = SysTick, default = true)]
     type MonoTimer = Systick<1000>;
@@ -39,11 +44,9 @@ mod app {
         let mut flash = cx.device.FLASH;
         let mut rcc = cx.device.RCC.configure().freeze(&mut flash);
 
-        rtt_init_print!();
-
         let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().0);
 
-        rprintln!("init");
+        init_log();
 
         let gpioa::Parts {
             pa5,
@@ -65,20 +68,31 @@ mod app {
         });
 
         let mut led = Rgb::new(pa5, pa6, pa7);
-        led.set(Color::Black);
+        led.set(Color::White);
 
-        let mut fusb302b = {
+        let mut pd = {
             let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
             let i2c = I2cBB::new(scl, sda, clk);
 
             Fusb302b::new(i2c)
         };
 
-        rprintln!("{:?}", fusb302b.device_id());
-        rprintln!("{:?}", fusb302b.switches1());
+        pd.init(monotonics::now());
 
-        // initialise
+        log::warn!("init done");
 
-        (Shared { _led: led }, Local {}, init::Monotonics(mono))
+        (Shared {}, Local { led, pd }, init::Monotonics(mono))
     }
+
+    #[idle(local = [pd, led])]
+    fn idle(cx: idle::Context) -> ! {
+        loop {
+            cx.local.pd.poll(monotonics::now());
+        }
+    }
+}
+
+#[panic_handler]
+fn panic_handler(_: &PanicInfo) -> ! {
+    loop {}
 }

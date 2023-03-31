@@ -3,3 +3,4 @@ chip = "STM32F030F4Px"
 
 [default.rtt]
 enabled = true
+log_enabled = true
