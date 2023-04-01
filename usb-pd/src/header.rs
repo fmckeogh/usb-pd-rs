@@ -4,34 +4,6 @@ use {
     proc_bitfield::bitfield,
 };
 
-#[derive(Debug)]
-pub enum SpecificationRevision {
-    R1_0,
-    R2_0,
-    R3_0,
-}
-
-impl From<u8> for SpecificationRevision {
-    fn from(value: u8) -> Self {
-        match value {
-            0b00 => Self::R1_0,
-            0b01 => Self::R2_0,
-            0b10 => Self::R3_0,
-            _ => unimplemented!(),
-        }
-    }
-}
-
-impl From<SpecificationRevision> for u8 {
-    fn from(value: SpecificationRevision) -> Self {
-        match value {
-            SpecificationRevision::R1_0 => 0b00,
-            SpecificationRevision::R2_0 => 0b01,
-            SpecificationRevision::R3_0 => 0b10,
-        }
-    }
-}
-
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Header(pub u16): Debug, FromRaw, IntoRaw {
@@ -57,6 +29,34 @@ impl Header {
             MessageType::Control(self.message_type_raw().into())
         } else {
             MessageType::Data(self.message_type_raw().into())
+        }
+    }
+}
+
+#[derive(Debug)]
+pub enum SpecificationRevision {
+    R1_0,
+    R2_0,
+    R3_0,
+}
+
+impl From<u8> for SpecificationRevision {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => Self::R1_0,
+            0b01 => Self::R2_0,
+            0b10 => Self::R3_0,
+            _ => unimplemented!(),
+        }
+    }
+}
+
+impl From<SpecificationRevision> for u8 {
+    fn from(value: SpecificationRevision) -> Self {
+        match value {
+            SpecificationRevision::R1_0 => 0b00,
+            SpecificationRevision::R2_0 => 0b01,
+            SpecificationRevision::R3_0 => 0b10,
         }
     }
 }

@@ -2,19 +2,26 @@
 
 use {
     crate::{
-        header::{ControlMessageType, Header, MessageType},
         registers::{
             Control1, Control3, Mask1, MaskA, MaskB, Power, Reset, Revision, Slice, Switches0,
             Switches1,
         },
+        timeout::Timeout,
     },
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
+    fixed_queue::VecDeque,
     fugit::ExtU64,
     log::{error, trace},
+    usb_pd::{
+        header::{ControlMessageType, Header, MessageType},
+        message::Message,
+        CcPin,
+    },
 };
 
-pub mod header;
+pub mod callback;
 pub mod registers;
+pub mod timeout;
 
 type Instant = fugit::Instant<u64, 1, 1000>;
 type Duration = fugit::Duration<u64, 1, 1000>;
@@ -22,24 +29,27 @@ type Duration = fugit::Duration<u64, 1, 1000>;
 /// I2C address of FUSB302BMPX
 const DEVICE_ADDRESS: u8 = 0b0100010;
 
-pub struct Fusb302b<I2C> {
+/// FUSB302B Programmable USB Type‐C Controller w/PD
+pub struct Fusb302b<I2C, F> {
     i2c: I2C,
     state: State,
+    callback: F,
 }
 
+/// Current state of the FUSB302B
 enum State {
     /// Measuring CC1/CC2 for activity
     MeasuringCc { cc: CcPin, timeout: Timeout },
     /// Activity detected, ready for first message
     Ready { timeout: Timeout },
     /// Connected
-    Connected,
+    Connected { events: VecDeque<Event, 5> },
     /// Wait period after a failure
     RetryWait { timeout: Timeout },
 }
 
 impl State {
-    pub fn new() -> Self {
+    pub fn initial() -> Self {
         Self::MeasuringCc {
             cc: CcPin::CC1,
             timeout: Timeout::new(),
@@ -47,17 +57,19 @@ impl State {
     }
 }
 
+/// Internal event to be processed after higher priority work is completed
 #[derive(Debug, Clone, Copy)]
-enum CcPin {
-    CC1,
-    CC2,
+enum Event {
+    StateChanged,
+    MessageReceived(Message),
 }
 
-impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
-    pub fn new(i2c: I2C) -> Self {
+impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2C, F> {
+    pub fn new(i2c: I2C, callback: F) -> Self {
         Self {
             i2c,
-            state: State::new(),
+            state: State::initial(),
+            callback,
         }
     }
 
@@ -69,7 +81,8 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
             Power::default()
                 .with_bandgap_wake(true)
                 .with_measure_block(true)
-                .with_receiver(true),
+                .with_receiver(true)
+                .with_internal_oscillator(false),
         );
 
         // disable CC monitoring
@@ -88,37 +101,16 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         // BMC threshold: 1.35V with a threshold of 85mV
         self.set_slice(Slice::default().with_sda_hys(0b01).with_sdac(0x20));
 
-        self.start_measurement(now);
+        self.start_measure_cc(now);
     }
 
     pub fn poll(&mut self, now: Instant) {
         self.check_interrupts(now);
-
-        match &mut self.state {
-            State::MeasuringCc { timeout, .. } => {
-                if timeout.is_expired(now) && self.is_cc_active(now).is_some() {
-                    trace!("cc active");
-                    self.ready(now);
-                }
-            }
-            State::Ready { timeout } => {
-                if timeout.is_expired(now) {
-                    trace!("no PD activity, resetting");
-                    self.retrywait(now);
-                }
-            }
-            State::Connected => (),
-            State::RetryWait { timeout } => {
-                if timeout.is_expired(now) {
-                    trace!("retry wait expired");
-                    self.state = State::new();
-                    self.init(now);
-                }
-            }
-        }
+        self.check_timeouts(now);
     }
 
-    fn start_measurement(&mut self, now: Instant) {
+    /// Starts the measurement of a CC pin, alternating each time this method is called
+    fn start_measure_cc(&mut self, now: Instant) {
         let State::MeasuringCc { cc, timeout } = &mut self.state else {
             return;
         };
@@ -145,20 +137,21 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         self.set_switches0(switches0);
     }
 
+    /// Tests whether the current CC pin being measured is active
     fn is_cc_active(&mut self, now: Instant) -> Option<CcPin> {
         let State::MeasuringCc { cc,.. } = self.state else {
             return None;
         };
 
         if self.status0().bc_lvl() == 0 {
-            self.start_measurement(now);
+            self.start_measure_cc(now);
             return None;
         }
 
         Some(cc)
     }
 
-    fn ready(&mut self, now: Instant) {
+    fn set_state_ready(&mut self, now: Instant) {
         // Enable automatic retries
         self.set_control3(
             Control3::default()
@@ -201,20 +194,22 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         // // Enable interrupt
         // write_register(reg_control0, control0_none);
 
-        let mut timeout = Timeout::new();
-        timeout.start(now, 500.millis());
-        self.state = State::Ready { timeout };
+        self.state = State::Ready {
+            timeout: Timeout::new_start(now, 500.millis()),
+        };
     }
 
-    fn retrywait(&mut self, now: Instant) {
-        let mut timeout = Timeout::new();
-        timeout.start(now, 500.millis());
-        self.state = State::RetryWait { timeout };
+    fn set_state_retrywait(&mut self, now: Instant) {
+        self.state = State::RetryWait {
+            timeout: Timeout::new_start(now, 500.millis()),
+        };
         // add event state changed
     }
 
-    fn connected(&mut self) {
-        self.state = State::Connected;
+    fn set_state_connected(&mut self) {
+        self.state = State::Connected {
+            events: VecDeque::new(),
+        };
         // add event state changed
     }
 
@@ -227,7 +222,7 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
 
         if interrupt_a.i_hardrst() {
             error!("hard reset");
-            self.retrywait(now);
+            self.set_state_retrywait(now);
             return;
         }
 
@@ -260,12 +255,12 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         }
 
         if message_pending {
-            self.check_message();
+            self.read_messages();
         }
     }
 
-    fn check_message(&mut self) {
-        trace!("checking message");
+    fn read_messages(&mut self) {
+        trace!("reading messages");
 
         while !self.status1().rx_empty() {
             // read message
@@ -273,15 +268,10 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
             self.read_fifo(&mut buf);
 
             if (buf[0] & 0xe0) != 0xe0 {
-                trace!("not SOP packet");
                 self.set_control1(Control1::default().with_rx_flush(true));
             }
 
-            trace!("was SOP!");
-
             let header = Header::from_bytes(&buf[1..]);
-            trace!("{:X?}", header);
-            trace!("{:X?}", header.message_type());
 
             let mut payload = [0; 64];
             self.read_fifo(&mut payload[..header.num_objects() as usize * 4 + 4]);
@@ -294,108 +284,44 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
             } else {
                 // connect if not connected
                 match self.state {
-                    State::Connected => (),
-                    _ => self.connected(),
+                    State::Connected { .. } => (),
+                    _ => self.set_state_connected(),
                 }
-                // add event (header, payload)
+
+                let State::Connected { events } = &mut self.state else { panic!() };
+
+                let msg = Message::parse(header, &payload);
+                events.push_back(Event::MessageReceived(msg)).unwrap();
             }
         }
     }
 
-    fn write_register_raw(&mut self, register: u8, value: u8) {
-        self.i2c.write(DEVICE_ADDRESS, &[register, value]).ok();
-    }
-
-    fn read_register_raw(&mut self, register: u8) -> u8 {
-        let mut buffer = [0u8];
-        self.i2c
-            .write_read(DEVICE_ADDRESS, &[register], &mut buffer)
-            .ok();
-        buffer[0]
-    }
-}
-
-/// Timeout wrapper
-#[derive(Debug, Default)]
-struct Timeout(Option<Instant>);
-
-impl Timeout {
-    /// Create a new empty timeout
-    fn new() -> Self {
-        Self::default()
-    }
-
-    /// Start a timeout some duration in the future
-    fn start(&mut self, now: Instant, duration: Duration) {
-        self.0 = Some(now + duration);
-    }
-
-    /// Cancel a timeout
-    fn cancel(&mut self) {
-        self.0 = None;
-    }
-
-    /// Test whether a timeout has expired
-    fn is_expired(&mut self, now: Instant) -> bool {
-        let Some(timeout) = self.0 else {
-            return false;
-        };
-
-        // is "now" after the timeout?
-        let expired = timeout <= now;
-
-        if expired {
-            self.cancel();
-        }
-
-        expired
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum PowerRole {
-    Source,
-    Sink,
-}
-
-impl From<bool> for PowerRole {
-    fn from(value: bool) -> Self {
-        match value {
-            false => Self::Sink,
-            true => Self::Source,
+    fn check_timeouts(&mut self, now: Instant) {
+        match &mut self.state {
+            State::MeasuringCc { timeout, .. } => {
+                if timeout.is_expired(now) && self.is_cc_active(now).is_some() {
+                    trace!("cc active");
+                    self.set_state_ready(now);
+                }
+            }
+            State::Ready { timeout } => {
+                if timeout.is_expired(now) {
+                    trace!("no PD activity, resetting");
+                    self.set_state_retrywait(now);
+                }
+            }
+            State::Connected { .. } => {}
+            State::RetryWait { timeout } => {
+                if timeout.is_expired(now) {
+                    trace!("retry wait expired");
+                    self.state = State::initial();
+                    self.init(now);
+                }
+            }
         }
     }
-}
 
-impl From<PowerRole> for bool {
-    fn from(role: PowerRole) -> bool {
-        match role {
-            PowerRole::Sink => false,
-            PowerRole::Source => true,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-pub enum DataRole {
-    Ufp,
-    Dfp,
-}
-
-impl From<bool> for DataRole {
-    fn from(value: bool) -> Self {
-        match value {
-            false => Self::Ufp,
-            true => Self::Dfp,
-        }
-    }
-}
-
-impl From<DataRole> for bool {
-    fn from(role: DataRole) -> bool {
-        match role {
-            DataRole::Ufp => false,
-            DataRole::Dfp => true,
-        }
+    fn notify_callback(&mut self, event: callback::Event) {
+        (self.callback)(event)
     }
 }

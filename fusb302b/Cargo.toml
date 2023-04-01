@@ -4,9 +4,13 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+bbqueue = { version = "0.5.1", features = ["thumbv6"] }
 byteorder = { version = "1.4.3", default-features = false }
 embedded-hal = "0.2.7"
+fixed-queue = "0.5.1"
 fugit = "0.3.6"
 log = "0.4.17"
 paste = "1.0.12"
 proc-bitfield = "0.2.2"
+
+usb-pd = { path = "../usb-pd" }
