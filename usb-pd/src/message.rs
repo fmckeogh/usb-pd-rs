@@ -1,18 +1,17 @@
-use crate::pdo::{EPRAdjustableVoltageSupply, SPRProgrammablePowerSupply};
-
 use {
     crate::{
         header::{ControlMessageType, DataMessageType, Header, MessageType},
         pdo::{
-            AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery, FixedSupply,
-            PowerDataObject, PowerDataObjectRaw, VariableSupply,
+            AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery,
+            EPRAdjustableVoltageSupply, FixedSupply, PowerDataObject, PowerDataObjectRaw,
+            SPRProgrammablePowerSupply, VariableSupply,
         },
     },
     byteorder::{ByteOrder, LittleEndian},
-    log::warn,
+    defmt::{warn, Format},
 };
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Format)]
 pub enum Message {
     Accept,
     Reject,

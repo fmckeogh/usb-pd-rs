@@ -1,9 +1,13 @@
 #![no_main]
 #![no_std]
 
-use {fusb302b::callback::Event, log::trace, rtic::app};
+use {
+    defmt::{error, trace},
+    defmt_rtt as _,
+    fusb302b::callback::Event,
+    rtic::app,
+};
 
-mod logging;
 mod rgb;
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
@@ -11,10 +15,10 @@ mod app {
     use {
         crate::{
             callback,
-            logging::init_log,
             rgb::{Color, Rgb},
         },
         bitbang_hal::i2c::I2cBB,
+        defmt::info,
         fusb302b::{callback::Event, Fusb302b},
         stm32f0xx_hal::{
             gpio::{
@@ -50,8 +54,6 @@ mod app {
 
         let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().0);
 
-        init_log();
-
         let gpioa::Parts {
             pa5,
             pa6,
@@ -83,7 +85,7 @@ mod app {
 
         pd.init(monotonics::now());
 
-        log::warn!("init done");
+        info!("init done");
 
         (Shared {}, Local { led, pd }, init::Monotonics(mono))
     }
@@ -102,5 +104,6 @@ fn callback(_event: Event) {
 
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo) -> ! {
+    error!("panic!");
     loop {}
 }

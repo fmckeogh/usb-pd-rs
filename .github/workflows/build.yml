@@ -30,6 +30,12 @@ jobs:
       - name: Cache artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Install flip-link
+        uses: actions-rs/cargo@v1
+        with:
+          command: install
+          args: flip-link
+
       - name: Run cargo build
         uses: actions-rs/cargo@v1
         with:

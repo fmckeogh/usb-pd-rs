@@ -6,4 +6,4 @@ edition = "2021"
 [dependencies]
 proc-bitfield = "0.2.2"
 byteorder = { version = "1.4.3", default-features = false }
-log = "0.4.17"
+defmt = "0.3.3"

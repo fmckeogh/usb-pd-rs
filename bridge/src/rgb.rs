@@ -1,6 +1,6 @@
 use embedded_hal::digital::v2::{PinState, StatefulOutputPin};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum Color {
     White = 0b111,
     Black = 0b000,
