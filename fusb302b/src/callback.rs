@@ -1,5 +1,9 @@
-use usb_pd::pdo::PowerDataObject;
+use {defmt::Format, usb_pd::pdo::PowerDataObject};
 
+/// Type of the user's callback function
+pub type Function = &'static dyn Fn(Event) -> Option<Response>;
+
+#[derive(Format)]
 pub enum Event {
     /// Protocol changed
     ProtocolChanged { protocol: Protocol },
@@ -21,9 +25,15 @@ pub enum Event {
     PowerReady { active_voltage_mv: u16 },
 }
 
+#[derive(Format)]
 pub enum Protocol {
     /// No USB-PD communication, USB 2.0 5V only
     _20,
     /// USB-PD communication
     PD,
+}
+
+#[derive(Format)]
+pub enum Response {
+    Request { voltage: u16, current: u16 },
 }
