@@ -2,10 +2,12 @@
 #![no_std]
 
 use {
+    core::cmp::max,
     defmt::{error, trace},
     defmt_rtt as _,
     fusb302b::callback::Event,
     rtic::app,
+    usb_pd::pdo::PowerDataObject,
 };
 
 mod rgb;
@@ -98,8 +100,39 @@ mod app {
     }
 }
 
-fn callback(_event: Event) {
-    trace!("callback");
+fn callback(event: Event) {
+    match event {
+        Event::ProtocolChanged { .. } => trace!("protocol changed"),
+
+        Event::PowerAccepted => trace!("power accepted"),
+        Event::PowerRejected => trace!("power rejected"),
+        Event::PowerReady { active_voltage_mv } => trace!("power ready {}mV", active_voltage_mv),
+        Event::SourceCapabilities {
+            source_capabilities,
+        } => {
+            let mut highest_voltage = 0;
+            let mut highest_current = 0;
+
+            for cap in source_capabilities.into_iter().filter(Option::is_some) {
+                match cap.unwrap() {
+                    PowerDataObject::Battery(battery) => {
+                        trace!("battery: {}", battery.max_voltage())
+                    }
+                    PowerDataObject::FixedSupply(fixed) => {
+                        trace!("fixed: {}", fixed.voltage());
+                        highest_voltage = max(highest_voltage, fixed.voltage());
+                        highest_current = max(highest_current, fixed.max_current());
+                    }
+                    PowerDataObject::VariableSupply(variable) => {
+                        trace!("variable: {}", variable.max_voltage())
+                    }
+                    PowerDataObject::AugmentedPowerDataObject(_) => {
+                        trace!("aug")
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[panic_handler]

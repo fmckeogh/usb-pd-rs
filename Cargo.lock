@@ -643,6 +643,7 @@ dependencies = [
  "fusb302b",
  "stm32f0xx-hal",
  "systick-monotonic",
+ "usb-pd",
 ]
 
 [[package]]
