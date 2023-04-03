@@ -3,11 +3,15 @@
 //! Setters/getters/clearers generated using macros, `Default` for each register is its reset value.
 
 use {
-    crate::{callback::Event, Fusb302b, DEVICE_ADDRESS},
+    crate::DEVICE_ADDRESS,
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
     proc_bitfield::bitfield,
     usb_pd::{DataRole, PowerRole},
 };
+
+pub struct Registers<I2C> {
+    i2c: I2C,
+}
 
 macro_rules! generate_register_read {
     ($reg:ident, $fn:ident) => {
@@ -76,7 +80,11 @@ macro_rules! generate_register_accessors {
     };
 }
 
-impl<I2C: Read + Write + WriteRead, F: FnMut(Event) -> ()> Fusb302b<I2C, F> {
+impl<I2C: Read + Write + WriteRead> Registers<I2C> {
+    pub fn new(i2c: I2C) -> Self {
+        Self { i2c }
+    }
+
     fn write_register_raw(&mut self, register: u8, value: u8) {
         self.i2c.write(DEVICE_ADDRESS, &[register, value]).ok();
     }
