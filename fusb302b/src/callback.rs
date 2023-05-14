@@ -35,5 +35,9 @@ pub enum Protocol {
 
 #[derive(Format)]
 pub enum Response {
-    Request { voltage: u16, current: u16 },
+    Request {
+        /// Index of the desired PowerDataObject
+        index: usize,
+        current: u16,
+    },
 }

@@ -1,5 +1,7 @@
 #![no_std]
 
+use usb_pd::token::Token;
+
 use {
     crate::{
         registers::{
@@ -8,13 +10,15 @@ use {
         },
         timeout::Timeout,
     },
+    byteorder::{ByteOrder, LittleEndian},
     defmt::{error, trace, Format},
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
     fixed_queue::VecDeque,
     fugit::ExtU64,
     usb_pd::{
-        header::{ControlMessageType, Header, MessageType},
+        header::{ControlMessageType, DataMessageType, Header, MessageType},
         message::Message,
+        pdo::FixedVariableRequestDataObject,
         CcPin,
     },
 };
@@ -34,6 +38,7 @@ pub struct Fusb302b<I2C> {
     registers: Registers<I2C>,
     state: State,
     callback: callback::Function,
+    message_id_counter: MessageIdCounter,
 }
 
 /// Current state of the FUSB302B
@@ -69,6 +74,7 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
             registers: Registers::new(i2c),
             state: State::initial(),
             callback,
+            message_id_counter: MessageIdCounter::default(),
         }
     }
 
@@ -354,14 +360,83 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         trace!("resp: {:?}", resp);
 
         match resp {
-            Some(callback::Response::Request { voltage, current }) => {
-                self.request_power(voltage, current);
+            Some(callback::Response::Request { index, current }) => {
+                self.request_power(index, current);
             }
             None => return,
         }
     }
 
-    fn request_power(&mut self, _voltage: u16, _current: u16) {
-        todo!()
+    fn request_power(&mut self, index: usize, current: u16) {
+        let payload = {
+            let mut payload = [0u8; 4];
+
+            LittleEndian::write_u32(
+                payload.as_mut_slice(),
+                FixedVariableRequestDataObject(0)
+                    .with_operating_current(current)
+                    .with_maximum_operating_current(current)
+                    .with_object_position(index as u8)
+                    .with_no_usb_suspend(true)
+                    .with_usb_communications_capable(true)
+                    .0,
+            );
+
+            payload
+        };
+
+        let header = usb_pd::header::Header(0)
+            .with_message_type_raw(DataMessageType::Request as u8)
+            .with_num_objects(1)
+            .with_spec_revision(usb_pd::header::SpecificationRevision::R3_0)
+            .with_port_power_role(usb_pd::PowerRole::Sink)
+            .with_message_id(self.message_id_counter.next());
+
+        self.send_message(header, payload.as_slice());
+    }
+
+    fn send_message(&mut self, header: Header, payload: &[u8]) {
+        self.registers.power().set_internal_oscillator(true);
+        self.registers.power().set_bandgap_wake(true);
+        self.registers.power().set_measure_block(true);
+        self.registers.power().set_receiver(true);
+
+        let payload_length = header.num_objects() * 4;
+
+        let mut buffer = [0u8; 40];
+
+        buffer[1] = Token::Sop1 as u8;
+        buffer[2] = Token::Sop1 as u8;
+        buffer[3] = Token::Sop1 as u8;
+        buffer[4] = Token::Sop2 as u8;
+        buffer[5] = Token::PackSym as u8 | (payload_length + 2);
+        buffer[6] = u8::try_from(header.0 & 0xff).unwrap();
+        buffer[7] = u8::try_from(header.0 >> 8).unwrap();
+
+        buffer[8] = payload[0];
+        buffer[9] = payload[1];
+        buffer[10] = payload[2];
+        buffer[11] = payload[3];
+
+        buffer[12] = Token::JamCrc as u8;
+        buffer[13] = Token::Eop as u8;
+        buffer[14] = Token::TxOff as u8;
+        buffer[15] = Token::TxOn as u8;
+
+        self.registers.write_fifo(&mut buffer[..=15]);
+
+        self.message_id_counter.inc();
+    }
+}
+
+#[derive(Default)]
+struct MessageIdCounter(u8);
+
+impl MessageIdCounter {
+    pub fn next(&mut self) -> u8 {
+        self.0
+    }
+    pub fn inc(&mut self) {
+        self.0 = (self.0 + 1) % 8;
     }
 }
