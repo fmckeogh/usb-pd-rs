@@ -10,7 +10,7 @@ use {
         },
         timeout::Timeout,
     },
-    byteorder::{ByteOrder, LittleEndian},
+    byteorder::{BigEndian, ByteOrder, LittleEndian},
     defmt::{error, trace, Format},
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
     fixed_queue::VecDeque,
@@ -88,7 +88,7 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
                 .with_bandgap_wake(true)
                 .with_measure_block(true)
                 .with_receiver(true)
-                .with_internal_oscillator(false),
+                .with_internal_oscillator(true),
         );
 
         // disable CC monitoring
@@ -184,13 +184,16 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         );
 
         // // Enable interrupts for CC activity and CRC_CHK
-        // write_register(reg_mask, mask_m_all & ~(mask_m_activity | mask_m_crc_chk));
+        //write_register(reg_mask, mask_m_all & ~(mask_m_activity | mask_m_crc_chk));
+        self.registers.set_mask1(Mask1(255 & !(64 | 16)));
 
         // // Unmask all interrupts (toggle done, hard reset, tx sent etc.)
         // write_register(reg_maska, maska_m_none);
+        self.registers.set_mask_a(MaskA(0));
 
         // // Enable good CRC sent interrupt
         // write_register(reg_maskb, maskb_m_none);
+        self.registers.set_mask_b(MaskB(0));
 
         // Enable pull down and CC monitoring
 
@@ -262,10 +265,10 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
             trace!("tx ack");
 
             // turn off internal oscillator if TX FIFO is empty
-            if self.registers.status1().tx_empty() {
-                let power = self.registers.power().with_internal_oscillator(false);
-                self.registers.set_power(power);
-            }
+            // if self.registers.status1().tx_empty() {
+            //     let power = self.registers.power().with_internal_oscillator(false);
+            //     self.registers.set_power(power);
+            // }
         }
 
         if interrupt.i_activity() {
@@ -288,9 +291,9 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
     }
 
     fn read_messages(&mut self) {
-        trace!("reading messages");
-
         while !self.registers.status1().rx_empty() {
+            trace!("rx not empty, reading messages");
+
             // read message
             let mut buf = [0u8; 3];
             self.registers.read_fifo(&mut buf);
@@ -321,6 +324,7 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
                 let State::Connected { events } = &mut self.state else { panic!() };
 
                 let msg = Message::parse(header, &payload);
+
                 trace!("got msg {:?}", msg);
                 events
                     .push_back(Event::MessageReceived(msg))
@@ -367,63 +371,101 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         }
     }
 
-    fn request_power(&mut self, index: usize, current: u16) {
+    fn request_power(&mut self, index: usize, mut current: u16) {
         let payload = {
             let mut payload = [0u8; 4];
 
-            LittleEndian::write_u32(
-                payload.as_mut_slice(),
-                FixedVariableRequestDataObject(0)
-                    .with_operating_current(current)
-                    .with_maximum_operating_current(current)
-                    .with_object_position(index as u8)
-                    .with_no_usb_suspend(true)
-                    .with_usb_communications_capable(true)
-                    .0,
-            );
+            let no_usb_suspend = 1;
+            let usb_comm_capable = 2;
+
+            if current > 0x3ff {
+                current = 0x3ff;
+            }
+            payload[0] = u8::try_from(current & 0xff).unwrap();
+            payload[1] = u8::try_from(((current >> 8) & 0x03) | ((current << 2) & 0xfc)).unwrap();
+            payload[2] = u8::try_from((current >> 6) & 0x0f).unwrap();
+            payload[3] =
+                u8::try_from((index & 0x07) << 4 | no_usb_suspend | usb_comm_capable).unwrap();
 
             payload
         };
 
-        let header = usb_pd::header::Header(0)
-            .with_message_type_raw(DataMessageType::Request as u8)
-            .with_num_objects(1)
-            .with_spec_revision(usb_pd::header::SpecificationRevision::R3_0)
-            .with_port_power_role(usb_pd::PowerRole::Sink)
-            .with_message_id(self.message_id_counter.next());
+        let header = ((1 & 0x07) << 12) | (130 & 0x1f) | 0x40 | ((2 - 1) << 6);
+        // let header = usb_pd::header::Header(0)
+        //     .with_message_type_raw(DataMessageType::Request as u8)
+        //     .with_num_objects(1)
+        //     .with_spec_revision(usb_pd::header::SpecificationRevision::R3_0)
+        //     .with_port_power_role(usb_pd::PowerRole::Sink)
+        //     .with_message_id(self.message_id_counter.next());
 
         self.send_message(header, payload.as_slice());
     }
 
-    fn send_message(&mut self, header: Header, payload: &[u8]) {
-        self.registers.power().set_internal_oscillator(true);
-        self.registers.power().set_bandgap_wake(true);
-        self.registers.power().set_measure_block(true);
-        self.registers.power().set_receiver(true);
+    fn send_message(&mut self, header: u16, payload: &[u8]) {
+        let payload_length = 1 * 4;
 
-        let payload_length = header.num_objects() * 4;
+        trace!(
+            "{} {}",
+            self.registers.status1().tx_empty(),
+            self.registers.status1().tx_full()
+        );
 
-        let mut buffer = [0u8; 40];
+        self.registers.write_fifo(&mut [
+            0x43, 18, 18, 18, 19, 134, 194, 16, 44, 177, 4, 19, 255, 20, 254, 161,
+        ]);
 
-        buffer[1] = Token::Sop1 as u8;
-        buffer[2] = Token::Sop1 as u8;
-        buffer[3] = Token::Sop1 as u8;
-        buffer[4] = Token::Sop2 as u8;
-        buffer[5] = Token::PackSym as u8 | (payload_length + 2);
-        buffer[6] = u8::try_from(header.0 & 0xff).unwrap();
-        buffer[7] = u8::try_from(header.0 >> 8).unwrap();
+        trace!(
+            "{} {}",
+            self.registers.status1().tx_empty(),
+            self.registers.status1().tx_full()
+        );
 
-        buffer[8] = payload[0];
-        buffer[9] = payload[1];
-        buffer[10] = payload[2];
-        buffer[11] = payload[3];
+        // let control0 = self.registers.control0().with_tx_start(true);
+        // self.registers.set_control0(control0);
 
-        buffer[12] = Token::JamCrc as u8;
-        buffer[13] = Token::Eop as u8;
-        buffer[14] = Token::TxOff as u8;
-        buffer[15] = Token::TxOn as u8;
+        // self.registers.write_fifo(&mut [
+        //     0x43,
+        //     Token::Sop1 as u8,
+        //     Token::Sop1 as u8,
+        //     Token::Sop1 as u8,
+        //     Token::Sop2 as u8,
+        //     Token::PackSym as u8 | (payload_length + 2),
+        // ]);
 
-        self.registers.write_fifo(&mut buffer[..=15]);
+        // self.registers.write_fifo(&mut [
+        //     0x43,
+        //     u8::try_from(header & 0xff).unwrap(),
+        //     u8::try_from(header >> 8).unwrap(),
+        //     payload[0],
+        //     payload[1],
+        //     payload[2],
+        //     payload[3],
+        // ]);
+
+        // trace!(
+        //     "{} {}",
+        //     self.registers.status1().tx_empty(),
+        //     self.registers.status1().tx_full()
+        // );
+
+        // self.registers.write_fifo(&mut [
+        //     0x43,
+        //     Token::JamCrc as u8,
+        //     Token::Eop as u8,
+        //     Token::TxOff as u8,
+        //     Token::TxOn as u8,
+        // ]);
+
+        let control0 = self.registers.control0().with_tx_start(true);
+        self.registers.set_control0(control0);
+
+        trace!(
+            "{} {}",
+            self.registers.status1().tx_empty(),
+            self.registers.status1().tx_full()
+        );
+
+        trace!("sent message");
 
         self.message_id_counter.inc();
     }

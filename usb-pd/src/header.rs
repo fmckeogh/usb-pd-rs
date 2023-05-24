@@ -1,6 +1,7 @@
 use {
     crate::{DataRole, PowerRole},
     byteorder::{ByteOrder, LittleEndian},
+    defmt::Format,
     proc_bitfield::bitfield,
 };
 
@@ -33,6 +34,7 @@ impl Header {
     }
 }
 
+#[derive(Format)]
 pub enum SpecificationRevision {
     R1_0,
     R2_0,

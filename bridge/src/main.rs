@@ -19,7 +19,7 @@ mod app {
             rgb::{Color, Rgb},
         },
         bitbang_hal::i2c::I2cBB,
-        defmt::info,
+        defmt::{info, trace},
         fusb302b::Fusb302b,
         stm32f0xx_hal::{
             gpio::{
@@ -48,7 +48,12 @@ mod app {
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
         let mut flash = cx.device.FLASH;
-        let mut rcc = cx.device.RCC.configure().freeze(&mut flash);
+        let mut rcc = cx
+            .device
+            .RCC
+            .configure()
+            .sysclk(32u32.mhz())
+            .freeze(&mut flash);
 
         let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().0);
 
@@ -109,6 +114,7 @@ fn callback(event: Event) -> Option<Response> {
             unsafe { IS_CONNECTED = true };
         }
         Event::PowerRejected => trace!("power rejected"),
+
         Event::PowerReady { active_voltage_mv } => trace!("power ready {}mV", active_voltage_mv),
 
         Event::SourceCapabilities {
