@@ -12,3 +12,5 @@ stm32f0xx-hal = { version = "0.18.0", features = ["rt", "stm32f030", "stm32f030x
 defmt = "0.3.4"
 defmt-rtt = "0.4.0"
 embedded-hal = "0.2.7"
+
+fixed-queue = "0.5.1"

@@ -97,6 +97,14 @@ impl MillisCount {
     }
 }
 
+fn delay(ms: u32) {
+    let now = MILLIS_COUNT.get();
+
+    while MILLIS_COUNT.get() < now + ms {
+        cortex_m::asm::nop();
+    }
+}
+
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo) -> ! {
     error!("panic!");

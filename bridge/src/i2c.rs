@@ -1,9 +1,12 @@
-use stm32f0xx_hal::{
-    gpio::{
-        gpioa::{PA10, PA9},
-        OpenDrain, Output, PushPull,
+use {
+    defmt::debug,
+    stm32f0xx_hal::{
+        gpio::{
+            gpioa::{PA10, PA9},
+            OpenDrain, Output, PushPull,
+        },
+        prelude::*,
     },
-    prelude::*,
 };
 
 pub struct BbI2c {
@@ -18,6 +21,20 @@ impl BbI2c {
             scl,
             sda,
             is_started: false,
+        }
+    }
+
+    pub fn pd_ctrl_read(&mut self, reg: u8, data: &mut [u8]) {
+        let ack = self.read_data(0x22, reg, data);
+        if (!ack) {
+            debug!("NACK read {:?}", reg);
+        }
+    }
+
+    pub fn pd_ctrl_write(&mut self, reg: u8, data: &mut [u8], end_with_stop: bool) {
+        let ack = self.write_data(0x22, reg, data, end_with_stop);
+        if (!ack) {
+            debug!("NACK write {:?}", reg);
         }
     }
 
