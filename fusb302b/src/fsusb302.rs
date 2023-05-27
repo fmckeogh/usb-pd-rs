@@ -1,20 +1,18 @@
 #![allow(non_camel_case_types)]
 
-use crate::pd_sink::pd_msg_type;
+use crate::pd_msg_type;
 
 use {
     crate::{
-        delay,
         fsusb302::{
             control1::*, control3::*, interrupt::*, interrupta::*, interruptb::*, mask::*,
             maska::*, maskb::*, power::*, reg::*, reset::*, slice::*, status0::*, status1::*,
             switches0::*, switches1::*, token::*,
         },
-        i2c::BbI2c,
-        pd_sink::{pd_header, pd_msg_type::*},
-        MILLIS_COUNT,
+        {pd_header, pd_msg_type::*},
     },
     defmt::debug,
+    embedded_hal::blocking::i2c::{Read, Write, WriteRead},
     fixed_queue::VecDeque,
 };
 
@@ -314,8 +312,8 @@ pub enum fusb302_state {
 }
 const NUM_MESSAGE_BUF: usize = 4;
 
-pub struct Fsusb302 {
-    i2c: BbI2c,
+pub struct Fsusb302<I2C> {
+    i2c: I2C,
     /// cc line being measured
     measuring_cc: u8,
 
@@ -338,10 +336,12 @@ pub struct Fsusb302 {
 
     /// ID for next USB PD message
     next_message_id: u16,
+
+    timestamp: u32,
 }
 
-impl Fsusb302 {
-    pub fn new(i2c: BbI2c) -> Self {
+impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
+    pub fn new(i2c: I2C) -> Self {
         Self {
             i2c,
             measuring_cc: 0,
@@ -352,6 +352,7 @@ impl Fsusb302 {
             events: VecDeque::new(),
             state_: fusb302_state::usb_20,
             next_message_id: 0,
+            timestamp: 0,
         }
     }
 
@@ -362,7 +363,10 @@ impl Fsusb302 {
     pub fn init(&mut self) {
         // full reset
         self.write_register(reg_reset, reset_sw_res as u8 | reset_pd_reset as u8);
-        delay(10);
+
+        for _ in 0..1_000_000 {
+            cortex_m::asm::nop();
+        }
 
         // power up everyting except oscillator
         self.write_register(reg_power, power_pwr_all as u8 & !(power_pwr_int_osc as u8));
@@ -393,12 +397,13 @@ impl Fsusb302 {
         self.start_measurement(1);
     }
 
-    pub fn poll(&mut self) {
+    pub fn poll(&mut self, timestamp: u32) {
+        self.timestamp = timestamp;
         self.check_for_interrupts();
 
         if (self.has_timeout_expired()) {
             if (self.state_ == fusb302_state::usb_pd_wait) {
-                debug!("{}: No CC activity", MILLIS_COUNT.get());
+                debug!("{}: No CC activity", self.timestamp);
                 self.establish_retry_wait();
             } else if (self.state_ == fusb302_state::usb_20) {
                 self.check_measurement();
@@ -443,7 +448,7 @@ impl Fsusb302 {
         let interruptb = self.read_register(reg_interruptb as u8);
 
         if ((interrupta & interrupta_i_hardrst as u8) != 0) {
-            debug!("{}: Hard reset\r\n", MILLIS_COUNT.get());
+            debug!("{}: Hard reset\r\n", self.timestamp);
             self.establish_retry_wait();
             return;
         }
@@ -462,7 +467,7 @@ impl Fsusb302 {
             may_have_message = true;
         }
         if ((interrupt & interrupt_i_crc_chk as u8) != 0) {
-            debug!("{}: CRC ok", MILLIS_COUNT.get());
+            debug!("{}: CRC ok", self.timestamp);
             may_have_message = true;
         }
         if ((interruptb & interruptb_i_gcrcsent as u8) != 0) {
@@ -571,16 +576,18 @@ impl Fsusb302 {
         self.state_ = fusb302_state::usb_pd;
         self.cancel_timeout();
         debug!("USB PD comm");
-        self.events.push_front(event {
-            kind: event_kind::state_changed,
-            msg_header: 0,
-            msg_payload: &0u8 as *const u8,
-        });
+        self.events
+            .push_front(event {
+                kind: event_kind::state_changed,
+                msg_header: 0,
+                msg_payload: &0u8 as *const u8,
+            })
+            .ok();
     }
 
     fn start_timeout(&mut self, ms: u32) {
         self.is_timeout_active = true;
-        self.timeout_expiration = MILLIS_COUNT.get() + ms;
+        self.timeout_expiration = self.timestamp + ms;
     }
 
     fn has_timeout_expired(&mut self) -> bool {
@@ -588,7 +595,7 @@ impl Fsusb302 {
             return false;
         }
 
-        let delta = self.timeout_expiration - MILLIS_COUNT.get();
+        let delta = self.timeout_expiration - self.timestamp;
         if (delta <= 0x8000000) {
             return false;
         }
@@ -612,7 +619,7 @@ impl Fsusb302 {
     fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) -> usize {
         // Read token and header
         let mut buf = [0u8; 3];
-        self.i2c.pd_ctrl_read(reg_fifos as u8, &mut buf);
+        self.pd_ctrl_read(reg_fifos as u8, &mut buf);
 
         // Check for SOP token
         if ((buf[0] & 0xe0) != 0xe0) {
@@ -627,8 +634,7 @@ impl Fsusb302 {
 
         // Get payload and CRC length
         let len = pd_header(*header).num_data_objs() * 4;
-        self.i2c
-            .pd_ctrl_read(reg_fifos as u8, &mut payload[..len + 4]);
+        self.pd_ctrl_read(reg_fifos as u8, &mut payload[..len + 4]);
 
         return len;
     }
@@ -673,7 +679,7 @@ impl Fsusb302 {
 
         debug!("buf_len: {}", n);
 
-        self.i2c.pd_ctrl_write(&mut buf[..n]);
+        self.pd_ctrl_write(&mut buf[..n]);
 
         self.next_message_id += 1;
         if (self.next_message_id == 8) {
@@ -683,11 +689,19 @@ impl Fsusb302 {
 
     fn read_register(&mut self, r: u8) -> u8 {
         let mut val = [0];
-        self.i2c.pd_ctrl_read(r, &mut val);
+        self.pd_ctrl_read(r, &mut val);
         val[0]
     }
 
     fn write_register(&mut self, r: reg, value: u8) {
-        self.i2c.pd_ctrl_write(&mut [r as u8, value]);
+        self.pd_ctrl_write(&mut [r as u8, value]);
+    }
+
+    pub fn pd_ctrl_read(&mut self, reg: u8, data: &mut [u8]) {
+        self.i2c.write_read(0x22, &[reg], data).ok();
+    }
+
+    pub fn pd_ctrl_write(&mut self, data: &mut [u8]) {
+        self.i2c.write(0x22, data).ok();
     }
 }

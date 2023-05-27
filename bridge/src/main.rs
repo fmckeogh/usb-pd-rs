@@ -1,107 +1,151 @@
 #![no_main]
 #![no_std]
 
-use {
-    crate::{fsusb302::Fsusb302, pd_sink::PdSink},
-    core::sync::atomic::{AtomicU32, Ordering},
-    cortex_m::{peripheral::syst::SystClkSource::Core, Peripherals},
-    cortex_m_rt::{entry, exception},
-    defmt::{error, info, trace},
-    defmt_rtt as _,
-    i2c::BbI2c,
-    stm32f0xx_hal::{pac, prelude::*, timers::Timer},
-};
+use {defmt::error, defmt_rtt as _, rtic::app};
 
-mod fsusb302;
-mod i2c;
-mod pd_sink;
 mod rgb;
 
-static MILLIS_COUNT: MillisCount = MillisCount::new();
-
-#[entry]
-fn main() -> ! {
-    let (Some(mut p), Some(cp)) = (pac::Peripherals::take(), Peripherals::take()) else {
-        panic!();
+#[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
+mod app {
+    use {
+        crate::rgb::{Color, Rgb},
+        bitbang_hal::i2c::I2cBB,
+        defmt::info,
+        fusb302b::Fusb302b,
+        stm32f0xx_hal::{
+            gpio::{
+                gpioa::{self, PA10, PA5, PA6, PA7, PA9},
+                OpenDrain, Output, PushPull,
+            },
+            pac::TIM3,
+            prelude::*,
+            timers::Timer,
+        },
+        systick_monotonic::Systick,
     };
 
-    let mut power_sink = cortex_m::interrupt::free(move |cs| {
-        let mut rcc = p.RCC.configure().sysclk(48.mhz()).freeze(&mut p.FLASH);
+    #[shared]
+    struct Shared {}
 
-        let gpioa = p.GPIOA.split(&mut rcc);
-
-        let scl = gpioa.pa10.into_push_pull_output_hs(cs);
-        let sda = gpioa.pa9.into_open_drain_output(cs);
-        let clk = Timer::tim3(p.TIM3, 400.khz(), &mut rcc);
-
-        let bbi2c = BbI2c::new(scl, sda, clk);
-
-        let fsusb302 = Fsusb302::new(bbi2c);
-
-        let power_sink = PdSink::new(fsusb302);
-
-        let mut syst = cp.SYST;
-
-        // Initialise SysTick counter with a defined value
-        unsafe { syst.cvr.write(1) };
-
-        // Set source for SysTick counter, here full operating frequency (== 48MHz)
-        syst.set_clock_source(Core);
-
-        // Set reload value, i.e. timer delay 48 MHz/4 Mcounts == 12Hz or 83ms
-        syst.set_reload(48_000_000 / 1000);
-
-        // Start counting
-        syst.enable_counter();
-
-        // Enable interrupt generation
-        syst.enable_interrupt();
-
-        power_sink
-    });
-
-    power_sink.init();
-
-    // Work in regular loop
-    loop {
-        power_sink.poll();
+    #[local]
+    struct Local {
+        led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
+        pd: Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>,
     }
-}
 
-// Define an exception handler, i.e. function to call when exception occurs. Here, if our SysTick
-// timer generates an exception the following handler will be called
-#[exception]
-fn SysTick() {
-    MILLIS_COUNT.inc();
-}
+    #[monotonic(binds = SysTick, default = true)]
+    type MonoTimer = Systick<1000>;
 
-struct MillisCount {
-    inner: AtomicU32,
-}
+    #[init]
+    fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
+        let mut flash = cx.device.FLASH;
+        let mut rcc = cx
+            .device
+            .RCC
+            .configure()
+            .sysclk(32u32.mhz())
+            .freeze(&mut flash);
 
-impl MillisCount {
-    pub const fn new() -> Self {
-        Self {
-            inner: AtomicU32::new(0),
+        let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().0);
+
+        let gpioa::Parts {
+            pa5,
+            pa6,
+            pa7,
+            pa9,
+            pa10,
+            ..
+        } = cx.device.GPIOA.split(&mut rcc);
+
+        let (pa5, pa6, pa7, sda, scl) = cortex_m::interrupt::free(move |cs| {
+            (
+                pa5.into_push_pull_output(cs),
+                pa6.into_push_pull_output(cs),
+                pa7.into_push_pull_output(cs),
+                pa9.into_open_drain_output(cs),
+                pa10.into_push_pull_output(cs),
+            )
+        });
+
+        let mut led = Rgb::new(pa5, pa6, pa7);
+        led.set(Color::White);
+
+        let mut pd = {
+            let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
+            let i2c = I2cBB::new(scl, sda, clk);
+            Fusb302b::new(i2c)
+        };
+
+        pd.init();
+
+        info!("init done");
+
+        (Shared {}, Local { led, pd }, init::Monotonics(mono))
+    }
+
+    #[idle(local = [pd, led])]
+    fn idle(cx: idle::Context) -> ! {
+        loop {
+            cx.local.pd.poll(monotonics::now().ticks() as u32);
         }
     }
-
-    pub fn get(&self) -> u32 {
-        self.inner.load(Ordering::SeqCst)
-    }
-
-    pub fn inc(&self) {
-        self.inner.store(self.get() + 1, Ordering::SeqCst);
-    }
 }
 
-fn delay(ms: u32) {
-    let now = MILLIS_COUNT.get();
+// fn callback(event: Event) -> Option<Response> {
+//     static mut IS_CONNECTED: bool = false;
 
-    while MILLIS_COUNT.get() < now + ms {
-        cortex_m::asm::nop();
-    }
-}
+//     match event {
+//         Event::ProtocolChanged { .. } => {
+//             trace!("protocol changed");
+//             unsafe { IS_CONNECTED = false };
+//         }
+//         Event::PowerAccepted => {
+//             trace!("power accepted");
+//             unsafe { IS_CONNECTED = true };
+//         }
+//         Event::PowerRejected => trace!("power rejected"),
+
+//         Event::PowerReady { active_voltage_mv } => trace!("power ready {}mV", active_voltage_mv),
+
+//         Event::SourceCapabilities {
+//             source_capabilities,
+//         } => {
+//             let mut voltage = 0;
+//             let mut current = 0;
+//             let mut index = 0;
+
+//             for (i, cap) in source_capabilities
+//                 .into_iter()
+//                 .filter(Option::is_some)
+//                 .enumerate()
+//             {
+//                 match cap.unwrap() {
+//                     PowerDataObject::Battery(battery) => {
+//                         trace!("battery: {}", battery.max_voltage())
+//                     }
+//                     PowerDataObject::FixedSupply(fixed) => {
+//                         trace!("fixed: {} {}", fixed.voltage(), fixed.max_current());
+//                         if fixed.voltage() > voltage {
+//                             index = i;
+//                             voltage = fixed.voltage();
+//                             current = fixed.max_current();
+//                         }
+//                     }
+//                     PowerDataObject::VariableSupply(variable) => {
+//                         trace!("variable: {}", variable.max_voltage())
+//                     }
+//                     PowerDataObject::AugmentedPowerDataObject(_) => {
+//                         trace!("aug")
+//                     }
+//                 }
+//             }
+
+//             return Some(Response::Request { index, current });
+//         }
+//     }
+
+//     None
+// }
 
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo) -> ! {
