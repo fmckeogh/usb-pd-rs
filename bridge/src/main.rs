@@ -2,134 +2,100 @@
 #![no_std]
 
 use {
-    core::mem::MaybeUninit,
-    cortex_m_rt::entry,
+    crate::{fsusb302::Fsusb302, pd_sink::PdSink},
+    core::sync::atomic::{AtomicU32, Ordering},
+    cortex_m::{peripheral::syst::SystClkSource::Core, Peripherals},
+    cortex_m_rt::{entry, exception},
     defmt::{error, info, trace},
-    defmt_rtt as _, stm32f0xx_hal as _,
-    zy12pdn_wrapper::root::{
-        sink_callback,
-        usb_pd::{i2c_bit_bang, mcu_hal, pd_sink},
-    },
+    defmt_rtt as _,
+    i2c::BbI2c,
+    stm32f0xx_hal::{pac, prelude::*},
 };
 
+mod fsusb302;
+mod i2c;
+mod pd_sink;
 mod rgb;
+
+static MILLIS_COUNT: MillisCount = MillisCount::new();
 
 #[entry]
 fn main() -> ! {
-    let mut hal = unsafe { MaybeUninit::<mcu_hal>::uninit().assume_init() };
-    unsafe { hal.init() };
-    info!("hal init");
+    let (Some(mut p), Some(cp)) = (pac::Peripherals::take(), Peripherals::take()) else {
+        panic!();
+    };
 
-    let mut i2c = unsafe { MaybeUninit::<i2c_bit_bang>::uninit().assume_init() };
-    unsafe { i2c.init() };
-    trace!("i2c init");
+    let mut power_sink = cortex_m::interrupt::free(move |cs| {
+        let mut rcc = p.RCC.configure().sysclk(48.mhz()).freeze(&mut p.FLASH);
 
-    let mut power_sink = unsafe { MaybeUninit::<pd_sink>::uninit().assume_init() };
-    unsafe { power_sink.set_event_callback(Some(sink_callback)) }
-    trace!("sink callback");
-    unsafe { power_sink.init() };
-    trace!("sink init");
+        let gpioa = p.GPIOA.split(&mut rcc);
 
+        // (Re-)configure PA1 as output
+        let led = gpioa.pa5.into_push_pull_output(cs);
+
+        let scl = gpioa.pa10.into_push_pull_output_hs(cs);
+        let sda = gpioa.pa9.into_open_drain_output(cs);
+
+        let bbi2c = BbI2c::new(scl, sda);
+
+        let fsusb302 = Fsusb302::new(bbi2c);
+
+        let power_sink = PdSink::new(fsusb302);
+
+        let mut syst = cp.SYST;
+
+        // Initialise SysTick counter with a defined value
+        unsafe { syst.cvr.write(1) };
+
+        // Set source for SysTick counter, here full operating frequency (== 48MHz)
+        syst.set_clock_source(Core);
+
+        // Set reload value, i.e. timer delay 48 MHz/4 Mcounts == 12Hz or 83ms
+        syst.set_reload(48_000_000 / 1000);
+
+        // Start counting
+        syst.enable_counter();
+
+        // Enable interrupt generation
+        syst.enable_interrupt();
+
+        power_sink
+    });
+
+    power_sink.init();
+
+    // Work in regular loop
     loop {
-        unsafe { power_sink.poll() };
+        power_sink.poll();
     }
-
-    panic!();
 }
 
-// #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
-// mod app {
-//     use core::mem::MaybeUninit;
+// Define an exception handler, i.e. function to call when exception occurs. Here, if our SysTick
+// timer generates an exception the following handler will be called
+#[exception]
+fn SysTick() {
+    MILLIS_COUNT.inc();
+}
 
-//     use {
-//         crate::rgb::{Color, Rgb},
-//         defmt::{info, trace},
-//         stm32f0xx_hal::{
-//             gpio::{
-//                 gpioa::{self, PA5, PA6, PA7},
-//                 Output, PushPull,
-//             },
-//             prelude::*,
-//         },
-//         systick_monotonic::Systick,
-//         zy12pdn_wrapper::root::{
-//             sink_callback,
-//             usb_pd::{i2c_bit_bang, pd_sink},
-//         },
-//     };
+struct MillisCount {
+    inner: AtomicU32,
+}
 
-//     #[shared]
-//     struct Shared {}
+impl MillisCount {
+    pub const fn new() -> Self {
+        Self {
+            inner: AtomicU32::new(0),
+        }
+    }
 
-//     #[local]
-//     struct Local {
-//         led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
-//     }
+    pub fn get(&self) -> u32 {
+        self.inner.load(Ordering::SeqCst)
+    }
 
-//     #[monotonic(binds = SysTick, default = true)]
-//     type MonoTimer = Systick<1000>;
-
-//     #[init]
-//     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
-//         let mut flash = cx.device.FLASH;
-//         let mut rcc = cx
-//             .device
-//             .RCC
-//             .configure()
-//             .sysclk(32u32.mhz())
-//             .freeze(&mut flash);
-
-//         let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().0);
-
-//         let gpioa::Parts {
-//             pa5,
-//             pa6,
-//             pa7,
-//             pa9,
-//             pa10,
-//             ..
-//         } = cx.device.GPIOA.split(&mut rcc);
-
-//         let (pa5, pa6, pa7, sda, scl) = cortex_m::interrupt::free(move |cs| {
-//             (
-//                 pa5.into_push_pull_output(cs),
-//                 pa6.into_push_pull_output(cs),
-//                 pa7.into_push_pull_output(cs),
-//                 pa9.into_open_drain_output(cs),
-//                 pa10.into_push_pull_output(cs),
-//             )
-//         });
-
-//         let mut led = Rgb::new(pa5, pa6, pa7);
-//         led.set(Color::White);
-
-//         info!("init done");
-
-//         let mut i2c = unsafe { MaybeUninit::<i2c_bit_bang>::uninit().assume_init() };
-//         unsafe { i2c.init() };
-
-//         trace!("i2c init");
-
-//         let mut power_sink = unsafe { MaybeUninit::<pd_sink>::uninit().assume_init() };
-//         unsafe { power_sink.set_event_callback(Some(sink_callback)) }
-//         trace!("sink calback");
-//         unsafe { power_sink.init() };
-//         trace!("i2c init");
-
-//         loop {
-//             unsafe { power_sink.poll() };
-//         }
-
-//         (Shared {}, Local { led }, init::Monotonics(mono))
-//     }
-
-//     #[idle(local = [led])]
-//     fn idle(cx: idle::Context) -> ! {
-//         loop {
-//             //cx.local.pd.poll(monotonics::now());
-//         }
-//     }
-// }
+    pub fn inc(&self) {
+        self.inner.store(self.get() + 1, Ordering::SeqCst);
+    }
+}
 
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo) -> ! {
