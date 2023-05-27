@@ -9,7 +9,7 @@ use {
     defmt::{error, info, trace},
     defmt_rtt as _,
     i2c::BbI2c,
-    stm32f0xx_hal::{pac, prelude::*},
+    stm32f0xx_hal::{pac, prelude::*, timers::Timer},
 };
 
 mod fsusb302;
@@ -30,13 +30,11 @@ fn main() -> ! {
 
         let gpioa = p.GPIOA.split(&mut rcc);
 
-        // (Re-)configure PA1 as output
-        let led = gpioa.pa5.into_push_pull_output(cs);
-
         let scl = gpioa.pa10.into_push_pull_output_hs(cs);
         let sda = gpioa.pa9.into_open_drain_output(cs);
+        let clk = Timer::tim3(p.TIM3, 400.khz(), &mut rcc);
 
-        let bbi2c = BbI2c::new(scl, sda);
+        let bbi2c = BbI2c::new(scl, sda, clk);
 
         let fsusb302 = Fsusb302::new(bbi2c);
 
