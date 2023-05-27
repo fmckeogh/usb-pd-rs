@@ -4,10 +4,17 @@ use {
     crate::fsusb302::{event_kind, fusb302_state, Fsusb302},
     core::ptr::copy_nonoverlapping,
     defmt::{debug, trace},
-    embedded_hal::blocking::i2c::{Read, Write, WriteRead},
+    embedded_hal::blocking::i2c::{Write, WriteRead},
 };
 
 mod fsusb302;
+mod registers;
+
+type Instant = fugit::Instant<u64, 1, 1000>;
+type Duration = fugit::Duration<u64, 1, 1000>;
+
+/// I2C address of FUSB302BMPX
+const DEVICE_ADDRESS: u8 = 0b0100010;
 
 pub struct Fusb302b<I2C> {
     pd_controller: Fsusb302<I2C>,
@@ -38,7 +45,7 @@ pub struct Fusb302b<I2C> {
     spec_rev: u8,
 }
 
-impl<I2C: Write + Read + WriteRead> Fusb302b<I2C> {
+impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self {
             pd_controller: Fsusb302::new(i2c),
@@ -67,10 +74,10 @@ impl<I2C: Write + Read + WriteRead> Fusb302b<I2C> {
         self.update_protocol();
     }
 
-    pub fn poll(&mut self, timestamp: u32) {
+    pub fn poll(&mut self, now: Instant) {
         // process events from PD controller
         loop {
-            self.pd_controller.poll(timestamp);
+            self.pd_controller.poll(now);
 
             if (!self.pd_controller.has_event()) {
                 break;

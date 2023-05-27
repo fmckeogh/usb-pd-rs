@@ -279,16 +279,13 @@ name = "fusb302b"
 version = "0.1.0"
 dependencies = [
  "bbqueue",
- "bitbang-hal",
  "byteorder",
- "cortex-m 0.7.7",
  "defmt",
  "embedded-hal",
  "fixed-queue",
  "fugit",
  "paste",
  "proc-bitfield",
- "stm32f0xx-hal",
  "usb-pd",
 ]
 

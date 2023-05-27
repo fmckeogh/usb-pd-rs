@@ -86,7 +86,7 @@ mod app {
     #[idle(local = [pd, led])]
     fn idle(cx: idle::Context) -> ! {
         loop {
-            cx.local.pd.poll(monotonics::now().ticks() as u32);
+            cx.local.pd.poll(monotonics::now());
         }
     }
 }
