@@ -5,7 +5,7 @@
 use {
     crate::DEVICE_ADDRESS,
     defmt::{trace, Format},
-    embedded_hal::blocking::i2c::{Read, Write, WriteRead},
+    embedded_hal::blocking::i2c::{Write, WriteRead},
     proc_bitfield::bitfield,
     usb_pd::{DataRole, PowerRole},
 };
@@ -86,10 +86,6 @@ impl<I2C: Write + WriteRead> Registers<I2C> {
         Self { i2c }
     }
 
-    pub fn write(&mut self, address: u8, bytes: &[u8]) {
-        self.i2c.write(address, bytes).ok();
-    }
-
     fn write_register_raw(&mut self, register: u8, value: u8) {
         assert!(self.i2c.write(DEVICE_ADDRESS, &[register, value]).is_ok());
     }
@@ -141,7 +137,7 @@ impl<I2C: Write + WriteRead> Registers<I2C> {
     );
 }
 
-enum Register {
+pub enum Register {
     DeviceId = 0x01,
     Switches0 = 0x02,
     Switches1 = 0x03,

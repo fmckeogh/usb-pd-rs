@@ -1,267 +1,20 @@
 #![allow(non_camel_case_types)]
 
-use crate::registers::{
-    Control1, Control3, Mask1, MaskA, MaskB, Power, Registers, Reset, Slice, Switches0, Switches1,
-};
-
 use {
     crate::{
-        fsusb302::{
-            control1::*, control3::*, interrupt::*, interrupta::*, interruptb::*, mask::*,
-            maska::*, maskb::*, power::*, reg::*, reset::*, slice::*, status0::*, status1::*,
-            switches0::*, switches1::*, token::*,
-        },
-        pd_header, pd_msg_type,
+        pd_header,
         pd_msg_type::*,
+        registers::{
+            Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
+            Switches0, Switches1,
+        },
         Instant,
     },
-    defmt::{debug, trace, warn},
+    defmt::{debug, warn},
     embedded_hal::blocking::i2c::{Write, WriteRead},
     fixed_queue::VecDeque,
+    usb_pd::token::Token,
 };
-
-const switches0_none: u8 = 0;
-
-/// FUSB302 register addresses
-enum reg {
-    reg_device_id = 0x01,
-    reg_switches0 = 0x02,
-    reg_switches1 = 0x03,
-    reg_measure = 0x04,
-    reg_slice = 0x05,
-    reg_control0 = 0x06,
-    reg_control1 = 0x07,
-    reg_control2 = 0x08,
-    reg_control3 = 0x09,
-    reg_mask = 0x0a,
-    reg_power = 0x0b,
-    reg_reset = 0x0c,
-    reg_ocpreg = 0x0d,
-    reg_maska = 0x0e,
-    reg_maskb = 0x0f,
-    reg_control4 = 0x10,
-    reg_status0a = 0x3c,
-    reg_status1a = 0x3d,
-    reg_interrupta = 0x3e,
-    reg_interruptb = 0x3f,
-    reg_status0 = 0x40,
-    reg_status1 = 0x41,
-    reg_interrupt = 0x42,
-    reg_fifos = 0x43,
-}
-
-/// FUSB302 register SWITCHES0 values
-enum switches0 {
-    switches0_pu_en2 = 0x01 << 7,
-    switches0_pu_en1 = 0x01 << 6,
-    switches0_vconn_cc2 = 0x01 << 5,
-    switches0_vconn_cc1 = 0x01 << 4,
-    switches0_meas_cc2 = 0x01 << 3,
-    switches0_meas_cc1 = 0x01 << 2,
-    switches0_pdwn2 = 0x01 << 1,
-    switches0_pdwn1 = 0x01 << 0,
-}
-
-/// FUSB302 register SWITCHES1 values
-enum switches1 {
-    switches1_powerrole = 0x01 << 7,
-    switches1_specrev_mask = 0x03 << 5,
-    switches1_specrev_rev_1_0 = 0x00 << 5,
-    switches1_specrev_rev_2_0 = 0x01 << 5,
-    switches1_datarole = 0x01 << 4,
-    switches1_auto_crc = 0x01 << 2,
-    switches1_txcc2 = 0x01 << 1,
-    switches1_txcc1 = 0x01 << 0,
-}
-
-/// FUSB302 register MEASURE values
-enum measure {
-    measure_meas_vbus = 0x01 << 6,
-    measure_meas_mdac_mask = 0x3f,
-}
-
-const slice_sdac_hys_mask: u8 = 0x03 << 6;
-
-/// FUSB302 register SLICE values
-enum slice {
-    slice_sdac_hys_255mv = 0x03 << 6,
-    slice_sdac_hys_170mv = 0x02 << 6,
-    slice_sdac_hys_085mv = 0x01 << 6,
-    slice_sdac_hys_none = 0x00 << 6,
-    slice_sdac_mask = 0x3f << 0,
-}
-
-/// FUSB302 register CONTROL1 values
-enum control1 {
-    control1_ensop2db = 0x01 << 6,
-    control1_ensop1db = 0x01 << 5,
-    control1_bist_mode2 = 0x01 << 4,
-    control1_rx_flush = 0x01 << 2,
-    control1_ensop2 = 0x01 << 1,
-    control1_ensop1 = 0x01 << 0,
-}
-
-const control2_mode_mask: u8 = 0x03 << 1;
-
-/// FUSB302 register CONTROL2 values
-enum control2 {
-    control2_tog_save_pwr_mask = 0x03 << 6,
-    control2_tog_rd_only = 0x01 << 5,
-    control2_wake_en = 0x01 << 3,
-    control2_mode_src_polling = 0x03 << 1,
-    control2_mode_snk_polling = 0x02 << 1,
-    control2_mode_drp_polling = 0x01 << 1,
-    control2_toggle = 0x01 << 0,
-}
-
-const control3_n_retries_mask: u8 = 0x03 << 1;
-
-/// FUSB302 register CONTROL3 values
-enum control3 {
-    control3_send_hard_reset = 0x03 << 6,
-    control3_bist_tmode = 0x01 << 5,
-    control3_auto_hardreset = 0x01 << 4,
-    control3_auto_softreset = 0x01 << 3,
-    control3_3_retries = 0x03 << 1,
-    control3_2_retries = 0x02 << 1,
-    control3_1_retry = 0x01 << 1,
-    control3_0_retries = 0x00 << 1,
-    control3_auto_retry = 0x01 << 0,
-}
-
-/// FUSB302 register MASK values
-enum mask {
-    mask_m_all = 0xff,
-    mask_m_vbusok = 0x01 << 7,
-    mask_m_activity = 0x01 << 6,
-    mask_m_comp_chng = 0x01 << 5,
-    mask_m_crc_chk = 0x01 << 4,
-    mask_m_alert = 0x01 << 3,
-    mask_m_wake = 0x01 << 2,
-    mask_m_collision = 0x01 << 1,
-    mask_m_bc_lvl = 0x01 << 0,
-}
-
-const power_pwr_mask: u8 = 0x0f << 0;
-
-/// FUSB302 register POWER values
-enum power {
-    power_pwr_all = 0x0f << 0,
-    power_pwr_int_osc = 0x01 << 3,
-    power_pwr_receiver = 0x01 << 2,
-    power_pwr_measure = 0x01 << 1,
-    power_pwr_bandgap = 0x01 << 0,
-}
-
-/// FUSB302 register RESET values
-enum reset {
-    reset_pd_reset = 0x01 << 1,
-    reset_sw_res = 0x01 << 0,
-}
-
-/// FUSB302 register MASKA values
-enum maska {
-    maska_m_all = 0xff,
-    maska_m_none = 0x00,
-    maska_m_ocp_temp = 0x01 << 7,
-    maska_m_togdone = 0x01 << 6,
-    maska_m_softfail = 0x01 << 5,
-    maska_m_retry_fail = 0x01 << 4,
-    maska_m_hardsent = 0x01 << 3,
-    maska_m_txsent = 0x01 << 2,
-    maska_m_softrst = 0x01 << 1,
-    maska_m_hardrst = 0x01 << 0,
-}
-
-/// FUSB302 register MASKB values
-enum maskb {
-    maskb_m_gcrcsent = 0x01 << 0,
-}
-
-const maskb_m_all: u8 = 0x01;
-const maskb_m_none: u8 = 0x00;
-
-const status1a_togss_mask: u8 = 0x07 << 3;
-/// FUSB302 register STATUS1A values
-enum status1a {
-    status1a_togss_toggle_running = 0x00 << 3,
-    status1a_togss_src_on_cc1 = 0x01 << 3,
-    status1a_togss_src_on_cc2 = 0x02 << 3,
-    status1a_togss_snk_on_cc1 = 0x05 << 3,
-    status1a_togss_snk_on_cc2 = 0x06 << 3,
-    status1a_togss_auto_accessory = 0x07 << 3,
-
-    status1a_rxsop2db = 0x01 << 2,
-    status1a_rxsop1db = 0x01 << 1,
-    status1a_rxsop = 0x01 << 0,
-}
-
-/// FUSB302 register INTERRUPTA values
-enum interrupta {
-    interrupta_i_ocp_temp = 0x01 << 7,
-    interrupta_i_togdone = 0x01 << 6,
-    interrupta_i_softfail = 0x01 << 5,
-    interrupta_i_retryfail = 0x01 << 4,
-    interrupta_i_hardsent = 0x01 << 3,
-    interrupta_i_txsent = 0x01 << 2,
-    interrupta_i_softrst = 0x01 << 1,
-    interrupta_i_hardrst = 0x01 << 0,
-}
-
-/// FUSB302 register INTERRUPTB values
-enum interruptb {
-    interruptb_i_gcrcsent = 0x01 << 0,
-}
-
-/// FUSB302 register STATUS0 values
-enum status0 {
-    status0_vbusok = 0x01 << 7,
-    status0_activity = 0x01 << 6,
-    status0_comp = 0x01 << 5,
-    status0_crc_chk = 0x01 << 4,
-    status0_alert_chk = 0x01 << 3,
-    status0_wake = 0x01 << 2,
-    status0_bc_lvl_mask = 0x03 << 0,
-}
-
-/// FUSB302 register STATUS1 values
-enum status1 {
-    status1_rxsop2_mask = 0x01 << 7,
-    status1_rxsop1 = 0x01 << 6,
-    status1_rx_empty = 0x01 << 5,
-    status1_rx_full = 0x01 << 4,
-    status1_tx_empty = 0x01 << 3,
-    status1_tx_full = 0x01 << 2,
-    status1_ovrtemp = 0x01 << 1,
-    status1_ocp = 0x01 << 0,
-}
-
-/// FUSB302 register INTERRUPT values
-enum interrupt {
-    interrupt_none = 0,
-    interrupt_i_vbusok = 0x01 << 7,
-    interrupt_i_activity = 0x01 << 6,
-    interrupt_i_comp_chng = 0x01 << 5,
-    interrupt_i_crc_chk = 0x01 << 4,
-    interrupt_i_alert = 0x01 << 3,
-    interrupt_i_wake = 0x01 << 2,
-    interrupt_i_collision = 0x01 << 1,
-    interrupt_i_bc_lvl = 0x01 << 0,
-}
-
-/// Tokens used in FUSB302B FIFO
-enum token {
-    token_txon = 0xa1,
-    token_sop1 = 0x12,
-    token_sop2 = 0x13,
-    token_sop3 = 0x1b,
-    token_reset1 = 0x15,
-    token_reset2 = 0x16,
-    token_packsym = 0x80,
-    token_jam_crc = 0xff,
-    token_eop = 0x14,
-    token_txoff = 0xfe,
-}
 
 /// Event kind
 pub enum event_kind {
@@ -280,12 +33,6 @@ pub struct event {
 
     /// Message payload (valid if event_kind = `message_received`, possibly `null`)
     pub msg_payload: *const u8,
-    // event() : kind(event_kind::none) {}
-
-    // event(event_kind evt_kind) : kind(evt_kind) {}
-
-    // event(uint16_t header, const uint8_t* payload = nullptr)
-    //     : kind(event_kind::message_received), msg_header(header), msg_payload(payload) {}
 }
 
 /// FUSB302 state
@@ -370,12 +117,32 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         self.i2c.set_switches0(Switches0(0));
 
         // Mask all interrupts
-        self.i2c.set_mask1(Mask1(mask_m_all as u8));
+        self.i2c.set_mask1(
+            Mask1::default()
+                .with_m_activity(true)
+                .with_m_alert(true)
+                .with_m_bc_lvl(true)
+                .with_m_collision(true)
+                .with_m_comp_chng(true)
+                .with_m_crc_chk(true)
+                .with_m_vbusok(true)
+                .with_m_wake(true),
+        );
         // Mask all interrupts
-        self.i2c.set_mask_a(MaskA(maska_m_all as u8));
+        self.i2c.set_mask_a(
+            MaskA::default()
+                .with_m_hardrst(true)
+                .with_m_hardsent(true)
+                .with_m_ocp_temp(true)
+                .with_m_retryfail(true)
+                .with_m_softfail(true)
+                .with_m_softrst(true)
+                .with_m_togdone(true)
+                .with_m_txsent(true),
+        );
 
         // Mask all interrupts (incl. good CRC sent)
-        self.i2c.set_mask_b(MaskB(maskb_m_all as u8));
+        self.i2c.set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
         self.next_message_id = 0;
         self.is_timeout_active = false;
@@ -390,7 +157,8 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         // could do it automatically.
 
         // BMC threshold: 1.35V with a threshold of 85mV
-        self.i2c.set_slice(Slice(slice_sdac_hys_085mv as u8 | 0x20));
+        self.i2c
+            .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(01));
 
         self.start_measurement(1);
     }
@@ -412,23 +180,22 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
     }
 
     fn start_measurement(&mut self, cc: u8) {
-        let mut sw0 = if cc == 1 {
-            switches0_meas_cc1 as u8
-        } else {
-            switches0_meas_cc2 as u8
-        };
-        sw0 = sw0 | switches0_pdwn1 as u8 | switches0_pdwn2 as u8;
+        let mut switches0 = Switches0::default().with_pdwn1(true).with_pdwn2(true);
+        match cc {
+            1 => switches0.set_meas_cc1(true),
+            2 => switches0.set_meas_cc2(true),
+            _ => todo!(),
+        }
 
         // test CC
-        self.i2c.set_switches0(Switches0(sw0));
+        self.i2c.set_switches0(switches0);
         self.start_timeout(10);
         self.measuring_cc = cc;
     }
 
     fn check_measurement(&mut self) {
         let _ = self.i2c.status0();
-        let status0 = self.i2c.status0().0;
-        if ((status0 & status0_bc_lvl_mask as u8) == 0) {
+        if (self.i2c.status0().bc_lvl() == 0) {
             // No CC activity
             self.start_measurement(if self.measuring_cc == 1 { 2 } else { 1 });
             return;
@@ -456,8 +223,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         if (interrupta.i_txsent()) {
             debug!("TX ack");
             // turn off internal oscillator if TX FIFO is empty
-            let status1 = self.i2c.status1().0;
-            if ((status1 & status1_tx_empty as u8) != 0) {
+            if self.i2c.status1().tx_empty() {
                 let power = self.i2c.power().with_internal_oscillator(false);
                 self.i2c.set_power(power);
             }
@@ -480,8 +246,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
 
     fn check_for_msg(&mut self) {
         loop {
-            let status1 = self.i2c.status1().0;
-            if ((status1 & status1_rx_empty as u8) == status1_rx_empty as u8) {
+            if self.i2c.status1().rx_empty() {
                 break;
             }
 
@@ -489,8 +254,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
             let mut payload = self.rx_message_buf[self.rx_message_index];
             self.read_message(&mut header, &mut payload[..]);
 
-            let status0 = self.i2c.status0().0;
-            if ((status0 & status0_crc_chk as u8) == 0) {
+            if !self.i2c.status0().crc_chk() {
                 debug!("Invalid CRC");
             } else if (pd_header(header).message_type() == pd_msg_type_ctrl_good_crc) {
                 debug!("Good CRC packet");
@@ -541,9 +305,17 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
             .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3));
 
         // Enable interrupts for CC activity and CRC_CHK
-        self.i2c.set_mask1(Mask1(
-            mask_m_all as u8 & !(mask_m_activity as u8 | mask_m_crc_chk as u8),
-        ));
+        self.i2c.set_mask1(
+            Mask1::default()
+                .with_m_activity(false)
+                .with_m_alert(true)
+                .with_m_bc_lvl(true)
+                .with_m_collision(true)
+                .with_m_comp_chng(true)
+                .with_m_crc_chk(false)
+                .with_m_vbusok(true)
+                .with_m_wake(true),
+        );
 
         // Unmask all interrupts (toggle done, hard reset, tx sent etc.)
         self.i2c.set_mask_a(MaskA::default());
@@ -552,26 +324,32 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         self.i2c.set_mask_b(MaskB::default());
 
         // Enable pull down and CC monitoring
-        self.i2c.set_switches0(Switches0(
-            (switches0_pdwn1 as u8
-                | switches0_pdwn2 as u8
-                | (if cc == 1 {
-                    switches0_meas_cc1 as u8
-                } else {
-                    switches0_meas_cc2 as u8
-                })),
-        ));
+        let mut switches0 = Switches0(0).with_pdwn1(true).with_pdwn2(true);
+        match cc {
+            1 => {
+                switches0.set_meas_cc1(true);
+            }
+            2 => {
+                switches0.set_meas_cc2(true);
+            }
+            _ => todo!(),
+        }
+        self.i2c.set_switches0(switches0);
 
         // Configure: auto CRC and BMC transmit on CC pin
-        self.i2c.set_switches1(Switches1(
-            switches1_specrev_rev_2_0 as u8
-                | switches1_auto_crc as u8
-                | (if cc == 1 {
-                    switches1_txcc1 as u8
-                } else {
-                    switches1_txcc2 as u8
-                }),
-        ));
+        let mut switches1 = Switches1(0)
+            .with_auto_src(true)
+            .with_specrev(crate::registers::Revision::R2_0);
+        match cc {
+            1 => {
+                switches1.set_txcc1(true);
+            }
+            2 => {
+                switches1.set_txcc2(true);
+            }
+            _ => todo!(),
+        }
+        self.i2c.set_switches1(switches1);
 
         self.state_ = fusb302_state::usb_pd_wait;
         self.start_timeout(300);
@@ -662,12 +440,12 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         let mut buf = [0u8; 40];
 
         // Create token stream
-        buf[0] = reg_fifos as u8;
-        buf[1] = token_sop1 as u8;
-        buf[2] = token_sop1 as u8;
-        buf[3] = token_sop1 as u8;
-        buf[4] = token_sop2 as u8;
-        buf[5] = (token_packsym as u8 | (payload_len + 2) as u8);
+        buf[0] = Register::Fifo as u8;
+        buf[1] = Token::Sop1 as u8;
+        buf[2] = Token::Sop1 as u8;
+        buf[3] = Token::Sop1 as u8;
+        buf[4] = Token::Sop2 as u8;
+        buf[5] = (Token::PackSym as u8 | (payload_len + 2) as u8);
         buf[6] = (header & 0xff) as u8;
         buf[7] = (header >> 8) as u8;
         if (payload_len > 0) {
@@ -676,13 +454,13 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
             }
         }
         let mut n = 8 + payload_len;
-        buf[n] = token_jam_crc as u8;
+        buf[n] = Token::JamCrc as u8;
         n += 1;
-        buf[n] = token_eop as u8;
+        buf[n] = Token::Eop as u8;
         n += 1;
-        buf[n] = token_txoff as u8;
+        buf[n] = Token::TxOff as u8;
         n += 1;
-        buf[n] = token_txon as u8;
+        buf[n] = Token::TxOn as u8;
         n += 1;
 
         debug!("buf_len: {}", n);

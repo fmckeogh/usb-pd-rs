@@ -58,3 +58,7 @@ impl From<DataRole> for bool {
         }
     }
 }
+
+pub trait SinkDriver {}
+
+pub trait SourceDriver {}
