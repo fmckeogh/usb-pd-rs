@@ -2,17 +2,19 @@
 
 use {
     crate::{
-        pd_msg_type::*,
         registers::{
             Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
             Switches0, Switches1,
         },
-        Instant, PdHeader,
+        Instant,
     },
     defmt::{debug, warn},
     embedded_hal::blocking::i2c::{Write, WriteRead},
     fixed_queue::VecDeque,
-    usb_pd::token::Token,
+    usb_pd::{
+        header::{ControlMessageType, Header, MessageType},
+        token::Token,
+    },
 };
 
 /// Event kind
@@ -254,7 +256,9 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
 
             if !self.i2c.status0().crc_chk() {
                 debug!("Invalid CRC");
-            } else if PdHeader(header).message_type() == pd_msg_type_ctrl_good_crc {
+            } else if Header(header).message_type()
+                == MessageType::Control(ControlMessageType::GoodCRC)
+            {
                 debug!("Good CRC packet");
             } else {
                 if self.state_ != fusb302_state::usb_pd {
@@ -416,7 +420,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         unsafe { header_buf.add(1).write_unaligned(buf[2]) };
 
         // Get payload and CRC length
-        let len = PdHeader(*header).num_data_objs() * 4;
+        let len = Header(*header).num_objects() as usize * 4;
         self.i2c.read_fifo(&mut payload[..len + 4]);
 
         return len;
@@ -432,7 +436,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
                 .with_receiver(true),
         );
 
-        let payload_len = PdHeader(header).num_data_objs() * 4;
+        let payload_len = Header(header).num_objects() as usize * 4;
         header |= self.next_message_id << 9;
 
         let mut buf = [0u8; 40];
