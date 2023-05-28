@@ -2,13 +2,12 @@
 
 use {
     crate::{
-        pd_header,
         pd_msg_type::*,
         registers::{
             Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
             Switches0, Switches1,
         },
-        Instant,
+        Instant, PdHeader,
     },
     defmt::{debug, warn},
     embedded_hal::blocking::i2c::{Write, WriteRead},
@@ -18,7 +17,6 @@ use {
 
 /// Event kind
 pub enum event_kind {
-    none,
     state_changed,
     message_received,
 }
@@ -167,13 +165,13 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         self.timestamp = now.ticks() as u32;
         self.check_for_interrupts();
 
-        if (self.has_timeout_expired()) {
-            if (self.state_ == fusb302_state::usb_pd_wait) {
+        if self.has_timeout_expired() {
+            if self.state_ == fusb302_state::usb_pd_wait {
                 debug!("{}: No CC activity", self.timestamp);
                 self.establish_retry_wait();
-            } else if (self.state_ == fusb302_state::usb_20) {
+            } else if self.state_ == fusb302_state::usb_20 {
                 self.check_measurement();
-            } else if (self.state_ == fusb302_state::usb_retry_wait) {
+            } else if self.state_ == fusb302_state::usb_retry_wait {
                 self.establish_usb_20();
             }
         }
@@ -195,7 +193,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
 
     fn check_measurement(&mut self) {
         let _ = self.i2c.status0();
-        if (self.i2c.status0().bc_lvl() == 0) {
+        if self.i2c.status0().bc_lvl() == 0 {
             // No CC activity
             self.start_measurement(if self.measuring_cc == 1 { 2 } else { 1 });
             return;
@@ -212,15 +210,15 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         let interrupta = self.i2c.interrupta();
         let interruptb = self.i2c.interruptb();
 
-        if (interrupta.i_hardrst()) {
+        if interrupta.i_hardrst() {
             debug!("{}: Hard reset\r\n", self.timestamp);
             self.establish_retry_wait();
             return;
         }
-        if (interrupta.i_retryfail()) {
+        if interrupta.i_retryfail() {
             debug!("Retry failed");
         }
-        if (interrupta.i_txsent()) {
+        if interrupta.i_txsent() {
             debug!("TX ack");
             // turn off internal oscillator if TX FIFO is empty
             if self.i2c.status1().tx_empty() {
@@ -228,18 +226,18 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
                 self.i2c.set_power(power);
             }
         }
-        if (interrupt.i_activity()) {
+        if interrupt.i_activity() {
             may_have_message = true;
         }
-        if (interrupt.i_crc_chk()) {
+        if interrupt.i_crc_chk() {
             debug!("{}: CRC ok", self.timestamp);
             may_have_message = true;
         }
-        if (interruptb.i_gcrcsent()) {
+        if interruptb.i_gcrcsent() {
             debug!("Good CRC sent");
             may_have_message = true;
         }
-        if (may_have_message) {
+        if may_have_message {
             self.check_for_msg();
         }
     }
@@ -256,10 +254,10 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
 
             if !self.i2c.status0().crc_chk() {
                 debug!("Invalid CRC");
-            } else if (pd_header(header).message_type() == pd_msg_type_ctrl_good_crc) {
+            } else if PdHeader(header).message_type() == pd_msg_type_ctrl_good_crc {
                 debug!("Good CRC packet");
             } else {
-                if (self.state_ != fusb302_state::usb_pd) {
+                if self.state_ != fusb302_state::usb_pd {
                     self.establish_usb_pd();
                 }
                 self.events
@@ -271,7 +269,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
                     .ok()
                     .unwrap();
                 self.rx_message_index += 1;
-                if (self.rx_message_index >= NUM_MESSAGE_BUF) {
+                if self.rx_message_index >= NUM_MESSAGE_BUF {
                     self.rx_message_index = 0;
                 }
             }
@@ -374,12 +372,12 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
     }
 
     fn has_timeout_expired(&mut self) -> bool {
-        if (!self.is_timeout_active) {
+        if !self.is_timeout_active {
             return false;
         }
 
         let delta = self.timeout_expiration - self.timestamp;
-        if (delta <= 0x8000000) {
+        if delta <= 0x8000000 {
             return false;
         }
 
@@ -405,7 +403,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         self.i2c.read_fifo(&mut buf);
 
         // Check for SOP token
-        if ((buf[0] & 0xe0) != 0xe0) {
+        if (buf[0] & 0xe0) != 0xe0 {
             // Flush RX FIFO
             self.i2c
                 .set_control1(Control1::default().with_rx_flush(true));
@@ -413,12 +411,12 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
             return 0;
         }
 
-        let mut header_buf = header as *mut u16 as *mut u8;
+        let header_buf = header as *mut u16 as *mut u8;
         unsafe { header_buf.write_unaligned(buf[1]) };
         unsafe { header_buf.add(1).write_unaligned(buf[2]) };
 
         // Get payload and CRC length
-        let len = pd_header(*header).num_data_objs() * 4;
+        let len = PdHeader(*header).num_data_objs() * 4;
         self.i2c.read_fifo(&mut payload[..len + 4]);
 
         return len;
@@ -434,8 +432,8 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
                 .with_receiver(true),
         );
 
-        let payload_len = pd_header(header).num_data_objs() * 4;
-        header |= (self.next_message_id << 9);
+        let payload_len = PdHeader(header).num_data_objs() * 4;
+        header |= self.next_message_id << 9;
 
         let mut buf = [0u8; 40];
 
@@ -445,10 +443,10 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         buf[2] = Token::Sop1 as u8;
         buf[3] = Token::Sop1 as u8;
         buf[4] = Token::Sop2 as u8;
-        buf[5] = (Token::PackSym as u8 | (payload_len + 2) as u8);
+        buf[5] = Token::PackSym as u8 | (payload_len + 2) as u8;
         buf[6] = (header & 0xff) as u8;
         buf[7] = (header >> 8) as u8;
-        if (payload_len > 0) {
+        if payload_len > 0 {
             for i in 0..payload.len() {
                 buf[8 + i] = payload[i];
             }
@@ -468,7 +466,7 @@ impl<I2C: Write + WriteRead> Fsusb302<I2C> {
         self.i2c.write_raw(&mut buf[..n]);
 
         self.next_message_id += 1;
-        if (self.next_message_id == 8) {
+        if self.next_message_id == 8 {
             self.next_message_id = 0;
         }
     }

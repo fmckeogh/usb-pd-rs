@@ -8,23 +8,22 @@ use {
 };
 
 mod fsusb302;
-mod registers;
+pub mod registers;
 
 type Instant = fugit::Instant<u64, 1, 1000>;
-type Duration = fugit::Duration<u64, 1, 1000>;
 
 /// I2C address of FUSB302BMPX
 const DEVICE_ADDRESS: u8 = 0b0100010;
 
 pub struct Fusb302b<I2C> {
     pd_controller: Fsusb302<I2C>,
-    protocol_: pd_protocol,
+    protocol_: Protocol,
     supports_ext_message: bool,
     /// Number of valid elements in `source_caps` array
     num_source_caps: u8,
 
     /// Array of supply capabilities
-    source_caps: [source_capability; 10],
+    source_caps: [SourceCapability; 10],
 
     /// Indicates if the source can deliver unconstrained power (e.g. a wall wart)
     is_unconstrained: bool,
@@ -49,11 +48,11 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self {
             pd_controller: Fsusb302::new(i2c),
-            protocol_: pd_protocol::usb_20,
+            protocol_: Protocol::Usb20,
             supports_ext_message: false,
             num_source_caps: 0,
-            source_caps: [source_capability {
-                supply_type: pd_supply_type::battery,
+            source_caps: [SourceCapability {
+                supply_type: SupplyType::Battery,
                 obj_pos: 0,
                 max_current: 0,
                 voltage: 0,
@@ -79,7 +78,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         loop {
             self.pd_controller.poll(now);
 
-            if (!self.pd_controller.has_event()) {
+            if !self.pd_controller.has_event() {
                 break;
             }
 
@@ -88,13 +87,12 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             match evt.kind {
                 event_kind::state_changed => {
                     if self.update_protocol() {
-                        self.notify(callback_event::protocol_changed);
+                        self.notify(CallbackEvent::protocol_changed);
                     }
                 }
                 event_kind::message_received => {
                     self.handle_msg(evt.msg_header, evt.msg_payload);
                 }
-                _ => (),
             }
         }
     }
@@ -103,9 +101,9 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         let old_protocol = self.protocol_;
 
         if self.pd_controller.state() == fusb302_state::usb_pd {
-            self.protocol_ = pd_protocol::usb_pd;
+            self.protocol_ = Protocol::UsbPd;
         } else {
-            self.protocol_ = pd_protocol::usb_20;
+            self.protocol_ = Protocol::Usb20;
             self.active_voltage = 5000;
             self.active_max_current = 900;
             self.num_source_caps = 0;
@@ -115,38 +113,38 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     }
 
     fn handle_msg(&mut self, header: u16, payload: *const u8) {
-        let spec_rev = pd_header(header).spec_rev();
+        let _spec_rev = PdHeader(header).spec_rev();
 
-        let msg_type = pd_header(header).message_type();
+        let msg_type = PdHeader(header).message_type();
 
-        match (msg_type) {
+        match msg_type {
             pd_msg_type::pd_msg_type_data_source_capabilities => {
                 self.handle_src_cap_msg(header, payload);
             }
             pd_msg_type::pd_msg_type_ctrl_accept => {
-                self.notify(callback_event::power_accepted);
+                self.notify(CallbackEvent::power_accepted);
             }
             pd_msg_type::pd_msg_type_ctrl_reject => {
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
-                self.notify(callback_event::power_rejected);
+                self.notify(CallbackEvent::power_rejected);
             }
             pd_msg_type::pd_msg_type_ctrl_ps_ready => {
                 self.active_voltage = self.requested_voltage;
                 self.active_max_current = self.requested_max_current;
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
-                self.notify(callback_event::power_ready);
+                self.notify(CallbackEvent::power_ready);
             }
             _ => (),
         }
     }
 
-    fn notify(&mut self, event: callback_event) {
+    fn notify(&mut self, event: CallbackEvent) {
         let mut voltage = 5000;
 
         match event {
-            callback_event::source_caps_changed => {
+            CallbackEvent::source_caps_changed => {
                 debug!("Caps changed: {}", self.num_source_caps);
 
                 // Take maximum voltage
@@ -164,16 +162,16 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 self.request_power(voltage, 0);
             }
 
-            callback_event::power_ready => debug!("Voltage: {}", self.active_voltage),
+            CallbackEvent::power_ready => debug!("Voltage: {}", self.active_voltage),
 
-            callback_event::protocol_changed => debug!("protocol_changed"),
+            CallbackEvent::protocol_changed => debug!("protocol_changed"),
 
             _ => (),
         }
     }
 
     fn handle_src_cap_msg(&mut self, header: u16, payload: *const u8) {
-        let n = pd_header(header).num_data_objs();
+        let n = PdHeader(header).num_data_objs();
 
         self.num_source_caps = 0;
         self.is_unconstrained = false;
@@ -182,29 +180,28 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         for obj_pos in 0..n {
             let payload = unsafe { payload.add(obj_pos * 4) };
 
-            if (self.num_source_caps >= self.source_caps.len() as u8) {
+            if self.num_source_caps >= self.source_caps.len() as u8 {
                 break;
             }
 
             let mut capability = 0u32;
             unsafe { copy_nonoverlapping(payload, &mut capability as *mut u32 as *mut u8, 4) };
 
-            let supply_type: pd_supply_type =
-                unsafe { core::mem::transmute((capability >> 30) as u8) };
+            let supply_type: SupplyType = unsafe { core::mem::transmute((capability >> 30) as u8) };
             let mut max_current = (capability & 0x3ff) * 10;
             let mut min_voltage = ((capability >> 10) & 0x03ff) * 50;
             let mut voltage = ((capability >> 20) & 0x03ff) * 50;
 
-            if (supply_type == pd_supply_type::fixed) {
+            if supply_type == SupplyType::Fixed {
                 voltage = min_voltage;
 
                 // Fixed 5V capability contains additional information
-                if (voltage == 5000) {
+                if voltage == 5000 {
                     self.is_unconstrained = (capability & (1 << 27)) != 0;
                     self.supports_ext_message = (capability & (1 << 24)) != 0;
                 }
-            } else if (supply_type == pd_supply_type::pps) {
-                if ((capability & (3 << 28)) != 0) {
+            } else if supply_type == SupplyType::Pps {
+                if (capability & (3 << 28)) != 0 {
                     continue;
                 }
 
@@ -213,7 +210,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 voltage = ((capability >> 17) & 0x00ff) * 100;
             }
 
-            self.source_caps[self.num_source_caps as usize] = source_capability {
+            self.source_caps[self.num_source_caps as usize] = SourceCapability {
                 supply_type,
                 obj_pos: obj_pos as u8 + 1,
                 max_current: max_current as u16,
@@ -223,7 +220,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             self.num_source_caps += 1;
         }
 
-        self.notify(callback_event::source_caps_changed);
+        self.notify(CallbackEvent::source_caps_changed);
     }
 
     fn request_power(&mut self, voltage: u16, mut max_current: u16) {
@@ -231,12 +228,12 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         let mut index = usize::MAX;
         for i in 0..self.num_source_caps as usize {
             let cap = self.source_caps[i];
-            if (cap.supply_type == pd_supply_type::fixed
+            if cap.supply_type == SupplyType::Fixed
                 && voltage >= cap.min_voltage
-                && voltage <= cap.voltage)
+                && voltage <= cap.voltage
             {
                 index = i;
-                if (max_current == 0) {
+                if max_current == 0 {
                     max_current = cap.max_current;
                 }
                 break;
@@ -260,7 +257,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         //     }
         // }
 
-        if (index == usize::MAX) {
+        if index == usize::MAX {
             panic!("Unsupported voltage {} requested", voltage);
         }
 
@@ -274,30 +271,29 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         voltage: u16,
         max_current: u16,
     ) -> i32 {
-        if (index < 0 || index >= self.num_source_caps as usize) {
+        if index >= self.num_source_caps as usize {
             return -1;
         }
         let cap = self.source_caps[index];
-        if (cap.supply_type != pd_supply_type::fixed && cap.supply_type != pd_supply_type::pps) {
+        if cap.supply_type != SupplyType::Fixed && cap.supply_type != SupplyType::Pps {
             return -1;
         }
-        if (voltage < cap.min_voltage || voltage > cap.voltage) {
+        if voltage < cap.min_voltage || voltage > cap.voltage {
             return -1;
         }
-        if (max_current < 25 || max_current > cap.max_current) {
+        if max_current < 25 || max_current > cap.max_current {
             return -1;
         }
 
         // Create 'request' message
         let mut payload = [0; 4];
-        if (cap.supply_type == pd_supply_type::fixed) {
+        if cap.supply_type == SupplyType::Fixed {
             self.set_request_payload_fixed(&mut payload, cap.obj_pos, voltage, max_current);
         } else {
             todo!()
         }
 
-        let header =
-            pd_header::create_data(pd_msg_type::pd_msg_type_data_request, 1, self.spec_rev);
+        let header = PdHeader::create_data(pd_msg_type::pd_msg_type_data_request, 1, self.spec_rev);
 
         // Send message
         self.pd_controller.send_message(header.0, &payload);
@@ -331,31 +327,31 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
 /// Power supply type
 #[derive(Clone, Copy, PartialEq)]
-enum pd_supply_type {
+enum SupplyType {
     /// Fixed supply (Vmin = Vmax)
-    fixed = 0,
+    Fixed = 0,
     /// Battery
-    battery = 1,
+    Battery = 1,
     /// Variable supply (non-battery)
-    variable = 2,
+    Variable = 2,
     /// Programmable power supply
-    pps = 3,
+    Pps = 3,
 }
 
 /// Power deliver protocol
 #[derive(PartialEq, Clone, Copy)]
-enum pd_protocol {
+enum Protocol {
     /// No USB PD communication (5V only)
-    usb_20,
+    Usb20,
     /// USB PD communication
-    usb_pd,
+    UsbPd,
 }
 
 /// Power source capability
 #[derive(Clone, Copy)]
-struct source_capability {
+struct SourceCapability {
     /// Supply type (fixed, batttery, variable etc.)
-    supply_type: pd_supply_type,
+    supply_type: SupplyType,
     /// Position within message (don't touch)
     obj_pos: u8,
     /// Maximum current (in mA)
@@ -367,7 +363,7 @@ struct source_capability {
 }
 
 /// Callback event types
-enum callback_event {
+enum CallbackEvent {
     /// Power delivery protocol has changed
     protocol_changed,
     /// Source capabilities have changed (immediately request power)
@@ -417,9 +413,9 @@ pub enum pd_msg_type {
 }
 
 /// Helper class to constrcut and decode USB PD message headers
-pub struct pd_header(pub u16);
+pub struct PdHeader(pub u16);
 
-impl pd_header {
+impl PdHeader {
     pub fn has_extended(&self) -> bool {
         return (self.0 & 0x8000) != 0;
     }
