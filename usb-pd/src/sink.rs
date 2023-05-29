@@ -6,6 +6,7 @@ use {
         Instant, PowerRole,
     },
     defmt::{debug, trace},
+    heapless::Vec,
 };
 
 pub trait Driver {
@@ -185,8 +186,8 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         }
     }
 
-    fn handle_src_cap_msg(&mut self, caps: [Option<PowerDataObject>; 10]) {
-        let n = caps.iter().filter_map(|cap| cap.as_ref()).count();
+    fn handle_src_cap_msg(&mut self, caps: Vec<PowerDataObject, 10>) {
+        let n = caps.len();
 
         self.num_source_caps = 0;
         self.is_unconstrained = false;
@@ -197,7 +198,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 break;
             }
 
-            let capability = caps[obj_pos].unwrap();
+            let capability = caps[obj_pos];
 
             let supply_type;
 

@@ -10,7 +10,7 @@ use {
     },
     defmt::{debug, trace, warn},
     embedded_hal::blocking::i2c::{Write, WriteRead},
-    fixed_queue::VecDeque,
+    heapless::spsc::Queue,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
         message::Message,
@@ -44,7 +44,7 @@ pub struct Fusb302b<I2C> {
     rx_message_index: usize,
 
     /// Queue of event that have occurred
-    events: VecDeque<Event, 4>,
+    events: Queue<Event, 4>,
 
     /// Current attachment state
     state_: State,
@@ -104,7 +104,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 
         self.next_message_id = 0;
         self.state_ = State::Usb20;
-        self.events.clear();
+        while self.events.dequeue().is_some() {}
 
         self.start_sink();
     }
@@ -127,7 +127,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
     }
 
     fn get_event(&mut self) -> Option<Event> {
-        self.events.pop_back()
+        self.events.dequeue()
     }
 
     fn send_message(&mut self, mut header: Header, payload: &[u8]) {
@@ -189,7 +189,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             timeout: Timeout::new(),
             rx_message_buf: [[0u8; 64]; NUM_MESSAGE_BUF],
             rx_message_index: 0,
-            events: VecDeque::new(),
+            events: Queue::new(),
             state_: State::Usb20,
             next_message_id: 0,
         }
@@ -295,7 +295,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 trace!("{:?}", message);
 
                 self.events
-                    .push_front(Event::MessageReceived(message))
+                    .enqueue(Event::MessageReceived(message))
                     .ok()
                     .unwrap();
                 self.rx_message_index += 1;
@@ -313,7 +313,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.init();
         self.state_ = State::UsbRetryWait;
         self.timeout.start(Duration::millis(500));
-        self.events.push_front(Event::StateChanged).ok().unwrap();
+        self.events.enqueue(Event::StateChanged).ok().unwrap();
     }
 
     fn establish_usb_20(&mut self) {
@@ -375,7 +375,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.state_ = State::UsbPd;
         self.timeout.cancel();
         debug!("USB PD comm");
-        self.events.push_front(Event::StateChanged).ok();
+        self.events.enqueue(Event::StateChanged).ok();
     }
 
     fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) -> usize {
