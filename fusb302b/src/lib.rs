@@ -21,7 +21,7 @@ use {
         header::{ControlMessageType, Header, MessageType},
         sink::{Driver as SinkDriver, Event, EventKind, State},
         token::Token,
-        Duration, Instant,
+        CcPin, Duration, Instant,
     },
 };
 
@@ -30,9 +30,10 @@ const NUM_MESSAGE_BUF: usize = 4;
 pub struct Fusb302b<I2C> {
     i2c: Registers<I2C>,
 
-    /// cc line being measured
-    measuring_cc: u8,
+    /// CC line being measured
+    cc_pin: CcPin,
 
+    /// Driver timeout logic
     timeout: Timeout,
 
     /// RX message buffers
@@ -182,7 +183,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self {
             i2c: Registers::new(i2c),
-            measuring_cc: 0,
+            cc_pin: CcPin::CC1,
             timeout: Timeout::new(),
             rx_message_buf: [[0u8; 64]; 4],
             rx_message_index: 0,
@@ -202,33 +203,31 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.i2c
             .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(01));
 
-        self.start_measurement(1);
+        self.start_measurement(CcPin::CC1);
     }
 
-    fn start_measurement(&mut self, cc: u8) {
+    fn start_measurement(&mut self, cc: CcPin) {
         let mut switches0 = Switches0::default().with_pdwn1(true).with_pdwn2(true);
         match cc {
-            1 => switches0.set_meas_cc1(true),
-            2 => switches0.set_meas_cc2(true),
-            _ => todo!(),
+            CcPin::CC1 => switches0.set_meas_cc1(true),
+            CcPin::CC2 => switches0.set_meas_cc2(true),
         }
 
         // test CC
         self.i2c.set_switches0(switches0);
         self.timeout.start(Duration::millis(10));
-        self.measuring_cc = cc;
+        self.cc_pin = cc;
     }
 
     fn check_measurement(&mut self) {
         let _ = self.i2c.status0();
         if self.i2c.status0().bc_lvl() == 0 {
             // No CC activity
-            self.start_measurement(if self.measuring_cc == 1 { 2 } else { 1 });
+            self.start_measurement(!self.cc_pin);
             return;
         }
 
-        self.establish_usb_pd_wait(self.measuring_cc);
-        self.measuring_cc = 0;
+        self.establish_usb_pd_wait(self.cc_pin);
     }
 
     fn check_for_interrupts(&mut self) {
@@ -327,7 +326,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.start_sink();
     }
 
-    fn establish_usb_pd_wait(&mut self, cc: u8) {
+    fn establish_usb_pd_wait(&mut self, cc: CcPin) {
         // Enable automatic retries
         self.i2c
             .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3));
@@ -352,31 +351,26 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.i2c.set_mask_b(MaskB::default());
 
         // Enable pull down and CC monitoring
-        let mut switches0 = Switches0(0).with_pdwn1(true).with_pdwn2(true);
-        match cc {
-            1 => {
-                switches0.set_meas_cc1(true);
+        let switches0 = {
+            let switches0 = Switches0(0).with_pdwn1(true).with_pdwn2(true);
+            match cc {
+                CcPin::CC1 => switches0.with_meas_cc1(true),
+                CcPin::CC2 => switches0.with_meas_cc2(true),
             }
-            2 => {
-                switches0.set_meas_cc2(true);
-            }
-            _ => todo!(),
-        }
+        };
+
         self.i2c.set_switches0(switches0);
 
         // Configure: auto CRC and BMC transmit on CC pin
-        let mut switches1 = Switches1(0)
-            .with_auto_src(true)
-            .with_specrev(crate::registers::Revision::R2_0);
-        match cc {
-            1 => {
-                switches1.set_txcc1(true);
+        let switches1 = {
+            let switches1 = Switches1(0)
+                .with_auto_src(true)
+                .with_specrev(crate::registers::Revision::R2_0);
+            match cc {
+                CcPin::CC1 => switches1.with_txcc1(true),
+                CcPin::CC2 => switches1.with_txcc2(true),
             }
-            2 => {
-                switches1.set_txcc2(true);
-            }
-            _ => todo!(),
-        }
+        };
         self.i2c.set_switches1(switches1);
 
         self.state_ = State::UsbPdWait;
