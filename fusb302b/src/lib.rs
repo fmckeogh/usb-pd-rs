@@ -1,11 +1,5 @@
 #![no_std]
 
-pub mod registers;
-mod timeout;
-
-/// I2C address of FUSB302BMPX
-const DEVICE_ADDRESS: u8 = 0b0100010;
-
 use {
     crate::{
         registers::{
@@ -19,16 +13,22 @@ use {
     fixed_queue::VecDeque,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
-        sink::{Driver as SinkDriver, Event, EventKind, State},
+        sink::{Driver as SinkDriver, Event, State},
         token::Token,
         CcPin, Duration, Instant,
     },
 };
 
+pub mod registers;
+mod timeout;
+
+/// I2C address of FUSB302BMPX
+const DEVICE_ADDRESS: u8 = 0b0100010;
+
 const NUM_MESSAGE_BUF: usize = 4;
 
 pub struct Fusb302b<I2C> {
-    i2c: Registers<I2C>,
+    registers: Registers<I2C>,
 
     /// CC line being measured
     cc_pin: CcPin,
@@ -37,13 +37,13 @@ pub struct Fusb302b<I2C> {
     timeout: Timeout,
 
     /// RX message buffers
-    rx_message_buf: [[u8; 64]; 4],
+    rx_message_buf: [[u8; 64]; NUM_MESSAGE_BUF],
 
     /// Next RX message index
     rx_message_index: usize,
 
     /// Queue of event that have occurred
-    events: VecDeque<Event, 6>,
+    events: VecDeque<Event, 4>,
 
     /// Current attachment state
     state_: State,
@@ -55,7 +55,7 @@ pub struct Fusb302b<I2C> {
 impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
     fn init(&mut self) {
         // full reset
-        self.i2c
+        self.registers
             .set_reset(Reset::default().with_pd_reset(true).with_sw_reset(true));
 
         for _ in 0..1_000_000 {
@@ -63,17 +63,17 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         }
 
         // power up everyting except oscillator
-        self.i2c.set_power(
+        self.registers.set_power(
             Power::default()
                 .with_bandgap_wake(true)
                 .with_measure_block(true)
                 .with_receiver(true),
         );
         // Disable all CC monitoring
-        self.i2c.set_switches0(Switches0(0));
+        self.registers.set_switches0(Switches0(0));
 
         // Mask all interrupts
-        self.i2c.set_mask1(
+        self.registers.set_mask1(
             Mask1::default()
                 .with_m_activity(true)
                 .with_m_alert(true)
@@ -85,7 +85,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
                 .with_m_wake(true),
         );
         // Mask all interrupts
-        self.i2c.set_mask_a(
+        self.registers.set_mask_a(
             MaskA::default()
                 .with_m_hardrst(true)
                 .with_m_hardsent(true)
@@ -98,7 +98,8 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         );
 
         // Mask all interrupts (incl. good CRC sent)
-        self.i2c.set_mask_b(MaskB::default().with_m_gcrcsent(true));
+        self.registers
+            .set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
         self.next_message_id = 0;
         self.state_ = State::Usb20;
@@ -130,7 +131,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 
     fn send_message(&mut self, mut header: Header, payload: &[u8]) {
         // Enable internal oscillator
-        self.i2c.set_power(
+        self.registers.set_power(
             Power::default()
                 .with_bandgap_wake(true)
                 .with_internal_oscillator(true)
@@ -169,7 +170,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 
         debug!("buf_len: {}", n);
 
-        self.i2c.write_raw(&mut buf[..n]);
+        self.registers.write_raw(&mut buf[..n]);
 
         self.next_message_id = self.next_message_id.wrapping_add(1);
     }
@@ -182,10 +183,10 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self {
-            i2c: Registers::new(i2c),
+            registers: Registers::new(i2c),
             cc_pin: CcPin::CC1,
             timeout: Timeout::new(),
-            rx_message_buf: [[0u8; 64]; 4],
+            rx_message_buf: [[0u8; 64]; NUM_MESSAGE_BUF],
             rx_message_index: 0,
             events: VecDeque::new(),
             state_: State::Usb20,
@@ -200,7 +201,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // could do it automatically.
 
         // BMC threshold: 1.35V with a threshold of 85mV
-        self.i2c
+        self.registers
             .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(01));
 
         self.start_measurement(CcPin::CC1);
@@ -214,14 +215,14 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         }
 
         // test CC
-        self.i2c.set_switches0(switches0);
+        self.registers.set_switches0(switches0);
         self.timeout.start(Duration::millis(10));
         self.cc_pin = cc;
     }
 
     fn check_measurement(&mut self) {
-        let _ = self.i2c.status0();
-        if self.i2c.status0().bc_lvl() == 0 {
+        let _ = self.registers.status0();
+        if self.registers.status0().bc_lvl() == 0 {
             // No CC activity
             self.start_measurement(!self.cc_pin);
             return;
@@ -233,9 +234,9 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     fn check_for_interrupts(&mut self) {
         let mut may_have_message = false;
 
-        let interrupt = self.i2c.interrupt();
-        let interrupta = self.i2c.interrupta();
-        let interruptb = self.i2c.interruptb();
+        let interrupt = self.registers.interrupt();
+        let interrupta = self.registers.interrupta();
+        let interruptb = self.registers.interruptb();
 
         if interrupta.i_hardrst() {
             debug!("Hard reset");
@@ -248,9 +249,9 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         if interrupta.i_txsent() {
             debug!("TX ack");
             // turn off internal oscillator if TX FIFO is empty
-            if self.i2c.status1().tx_empty() {
-                let power = self.i2c.power().with_internal_oscillator(false);
-                self.i2c.set_power(power);
+            if self.registers.status1().tx_empty() {
+                let power = self.registers.power().with_internal_oscillator(false);
+                self.registers.set_power(power);
             }
         }
         if interrupt.i_activity() {
@@ -271,7 +272,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
     fn check_for_msg(&mut self) {
         loop {
-            if self.i2c.status1().rx_empty() {
+            if self.registers.status1().rx_empty() {
                 break;
             }
 
@@ -279,7 +280,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             let mut payload = self.rx_message_buf[self.rx_message_index];
             self.read_message(&mut header, &mut payload[..]);
 
-            if !self.i2c.status0().crc_chk() {
+            if !self.registers.status0().crc_chk() {
                 debug!("Invalid CRC");
             } else if Header(header).message_type()
                 == MessageType::Control(ControlMessageType::GoodCRC)
@@ -290,10 +291,9 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                     self.establish_usb_pd();
                 }
                 self.events
-                    .push_front(Event {
+                    .push_front(Event::MessageReceived {
                         msg_header: header,
                         msg_payload: &payload[0] as *const u8,
-                        kind: EventKind::MessageReceived,
                     })
                     .ok()
                     .unwrap();
@@ -312,14 +312,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.init();
         self.state_ = State::UsbRetryWait;
         self.timeout.start(Duration::millis(500));
-        self.events
-            .push_front(Event {
-                kind: EventKind::StateChanged,
-                msg_header: 0,
-                msg_payload: &0u8 as *const u8,
-            })
-            .ok()
-            .unwrap();
+        self.events.push_front(Event::StateChanged).ok().unwrap();
     }
 
     fn establish_usb_20(&mut self) {
@@ -328,11 +321,11 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
     fn establish_usb_pd_wait(&mut self, cc: CcPin) {
         // Enable automatic retries
-        self.i2c
+        self.registers
             .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3));
 
         // Enable interrupts for CC activity and CRC_CHK
-        self.i2c.set_mask1(
+        self.registers.set_mask1(
             Mask1::default()
                 .with_m_activity(false)
                 .with_m_alert(true)
@@ -345,10 +338,10 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         );
 
         // Unmask all interrupts (toggle done, hard reset, tx sent etc.)
-        self.i2c.set_mask_a(MaskA::default());
+        self.registers.set_mask_a(MaskA::default());
 
         // Enable good CRC sent interrupt
-        self.i2c.set_mask_b(MaskB::default());
+        self.registers.set_mask_b(MaskB::default());
 
         // Enable pull down and CC monitoring
         let switches0 = {
@@ -359,7 +352,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             }
         };
 
-        self.i2c.set_switches0(switches0);
+        self.registers.set_switches0(switches0);
 
         // Configure: auto CRC and BMC transmit on CC pin
         let switches1 = {
@@ -371,7 +364,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 CcPin::CC2 => switches1.with_txcc2(true),
             }
         };
-        self.i2c.set_switches1(switches1);
+        self.registers.set_switches1(switches1);
 
         self.state_ = State::UsbPdWait;
         self.timeout.start(Duration::millis(300u64))
@@ -381,24 +374,18 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.state_ = State::UsbPd;
         self.timeout.cancel();
         debug!("USB PD comm");
-        self.events
-            .push_front(Event {
-                kind: EventKind::StateChanged,
-                msg_header: 0,
-                msg_payload: &0u8 as *const u8,
-            })
-            .ok();
+        self.events.push_front(Event::StateChanged).ok();
     }
 
     fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) -> usize {
         // Read token and header
         let mut buf = [0u8; 3];
-        self.i2c.read_fifo(&mut buf);
+        self.registers.read_fifo(&mut buf);
 
         // Check for SOP token
         if (buf[0] & 0xe0) != 0xe0 {
             // Flush RX FIFO
-            self.i2c
+            self.registers
                 .set_control1(Control1::default().with_rx_flush(true));
             warn!("Flushed RX buffer");
             return 0;
@@ -410,7 +397,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
         // Get payload and CRC length
         let len = Header(*header).num_objects() as usize * 4;
-        self.i2c.read_fifo(&mut payload[..len + 4]);
+        self.registers.read_fifo(&mut payload[..len + 4]);
 
         return len;
     }

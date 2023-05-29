@@ -32,22 +32,16 @@ pub enum State {
     UsbRetryWait,
 }
 
-/// Event kind
-pub enum EventKind {
-    StateChanged,
-    MessageReceived,
-}
-
 /// Event queue by FUSB302 instance for clients (such as `pd_sink`)
-pub struct Event {
-    /// Event kind
-    pub kind: EventKind,
+pub enum Event {
+    StateChanged,
+    MessageReceived {
+        /// Message header (valid if event_kind = `message_received`)
+        msg_header: u16,
 
-    /// Message header (valid if event_kind = `message_received`)
-    pub msg_header: u16,
-
-    /// Message payload (valid if event_kind = `message_received`, possibly `null`)
-    pub msg_payload: *const u8,
+        /// Message payload (valid if event_kind = `message_received`, possibly `null`)
+        msg_payload: *const u8,
+    },
 }
 
 pub struct Sink<DRIVER> {
@@ -116,14 +110,17 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 break;
             };
 
-            match evt.kind {
-                EventKind::StateChanged => {
+            match evt {
+                Event::StateChanged => {
                     if self.update_protocol() {
                         self.notify(CallbackEvent::ProtocolChanged);
                     }
                 }
-                EventKind::MessageReceived => {
-                    self.handle_msg(evt.msg_header, evt.msg_payload);
+                Event::MessageReceived {
+                    msg_header,
+                    msg_payload,
+                } => {
+                    self.handle_msg(msg_header, msg_payload);
                 }
             }
         }
