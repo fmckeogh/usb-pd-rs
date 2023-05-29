@@ -235,7 +235,7 @@ impl From<Revision> for bool {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Switches1(pub u8): FromRaw, IntoRaw {
         /// Bit used for constructing the GoodCRC acknowledge packet. This bit corresponds to the
         /// Port Power Role bit in the message header if an SOP packet is received.
@@ -255,14 +255,9 @@ bitfield! {
         pub txcc1: bool @ 0,
     }
 }
-impl Default for Switches1 {
-    fn default() -> Self {
-        Self(0b0010_0000)
-    }
-}
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Measure(pub u8): FromRaw, IntoRaw {
         /// false: MDAC/comparator measurement is controlled by MEAS_CC* bits
         /// true: Measure VBUS with the MDAC/comparator. This requires MEAS_CC* bits to be 0
@@ -283,14 +278,8 @@ bitfield! {
     }
 }
 
-impl Default for Measure {
-    fn default() -> Self {
-        Self(0b0011_0001)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Slice(pub u8): FromRaw, IntoRaw {
         /// Adds hysteresis where there are now two thresholds, the lower threshold which is always
         /// the value programmed by SDAC\[5:0\] and the higher threshold that is:
@@ -305,14 +294,8 @@ bitfield! {
     }
 }
 
-impl Default for Slice {
-    fn default() -> Self {
-        Self(0b0110_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Control0(pub u8): FromRaw, IntoRaw {
         /// Self clearing bit to flush the content of the transmit FIFO
         pub tx_flush: bool [write_only] @ 6,
@@ -339,14 +322,8 @@ bitfield! {
     }
 }
 
-impl Default for Control0 {
-    fn default() -> Self {
-        Self(0b0010_0100)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Control1(pub u8): FromRaw, IntoRaw {
         /// Enable SOP''_DEBUG (SOP double prime debug) packets, false for ignore
         pub ensop2db: bool @ 6,
@@ -363,14 +340,8 @@ bitfield! {
     }
 }
 
-impl Default for Control1 {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Control2(pub u8): FromRaw, IntoRaw {
         /// * `00`: Don’t go into the DISABLE state after one cycle of toggle
         /// * `01`: Wait between toggle cycles for tDIS time of 40 ms
@@ -396,14 +367,8 @@ bitfield! {
     }
 }
 
-impl Default for Control2 {
-    fn default() -> Self {
-        Self(0b0000_0010)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Control3(pub u8): FromRaw, IntoRaw {
         /// Send a hard reset packet (highest priority)
         pub send_hard_reset: bool [write_only] @ 6,
@@ -430,14 +395,8 @@ bitfield! {
     }
 }
 
-impl Default for Control3 {
-    fn default() -> Self {
-        Self(0b0000_0110)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Mask1(pub u8): FromRaw, IntoRaw {
         /// Mask I_VBUSOK interrupt bit
         pub m_vbusok: bool @ 7,
@@ -458,14 +417,8 @@ bitfield! {
     }
 }
 
-impl Default for Mask1 {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Default)]
     pub struct Power(pub u8): FromRaw, IntoRaw {
         /// Enable internal oscillator
         pub internal_oscillator: bool @ 3,
@@ -478,14 +431,8 @@ bitfield! {
     }
 }
 
-impl Default for Power {
-    fn default() -> Self {
-        Self(0b0000_0001)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Reset(pub u8): FromRaw, IntoRaw {
         /// Reset just the PD logic for both the PD transmitter and receiver
         pub pd_reset: bool @ 1,
@@ -495,14 +442,8 @@ bitfield! {
     }
 }
 
-impl Default for Reset {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct OcPreg(pub u8): FromRaw, IntoRaw {
         /// * `true`: OCP range between 100−800 mA (max_range = 800 mA)
         /// * `false`: OCP range between 10−80 mA (max_range = 80 mA)
@@ -520,14 +461,8 @@ bitfield! {
     }
 }
 
-impl Default for OcPreg {
-    fn default() -> Self {
-        Self(0b0000_1111)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct MaskA(pub u8): FromRaw, IntoRaw {
         /// Mask the I_OCP_TEMP interrupt
         pub m_ocp_temp: bool @ 7,
@@ -548,42 +483,24 @@ bitfield! {
     }
 }
 
-impl Default for MaskA {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct MaskB(pub u8): FromRaw, IntoRaw {
         /// Mask the I_GCRCSENT interrupt
         pub m_gcrcsent: bool @ 0,
     }
 }
 
-impl Default for MaskB {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Control4(pub u8): FromRaw, IntoRaw {
         /// In auto Rd only Toggle mode, stop Toggle at Audio accessory (Ra on both CC)
         pub tog_exit_aud: bool @ 0,
     }
 }
 
-impl Default for Control4 {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Status0A(pub u8): FromRaw, IntoRaw {
         /// All soft reset packets with retries have failed to get a GoodCRC acknowledge. This
         /// status is cleared when a START_TX, TXON or SEND_HARD_RESET is executed
@@ -607,14 +524,8 @@ bitfield! {
     }
 }
 
-impl Default for Status0A {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Status1A(pub u8): FromRaw, IntoRaw {
         /// * `000`: Toggle logic running (processor has previously written TOGGLE=1)
         /// * `001`: Toggle functionality has settled to SRCon CC1 (STOP_SRC1 state)
@@ -639,14 +550,8 @@ bitfield! {
     }
 }
 
-impl Default for Status1A {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct InterruptA(pub u8): FromRaw, IntoRaw {
         /// Interrupt from either a OCP event on one of the VCONN switches or an over-temperature
         /// event
@@ -670,14 +575,8 @@ bitfield! {
     }
 }
 
-impl Default for InterruptA {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct InterruptB(pub u8): FromRaw, IntoRaw {
         /// Sent a GoodCRC acknowledge packet in response to an incoming packet that has the
         /// correct CRC value
@@ -685,14 +584,8 @@ bitfield! {
     }
 }
 
-impl Default for InterruptB {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Default)]
     pub struct Status0(pub u8): FromRaw, IntoRaw {
         /// Interrupt occurs when VBUS transitions through vVBUSthr. This bit typically is used to
         /// recognize port partner during startup
@@ -738,14 +631,8 @@ bitfield! {
     }
 }
 
-impl Default for Status0 {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Default)]
     pub struct Status1(pub u8): FromRaw, IntoRaw {
         /// Indicates the last packet placed in the RxFIFO is type SOP'' (SOP double prime)
         pub rxsop2: bool [read_only] @ 7,
@@ -766,14 +653,8 @@ bitfield! {
     }
 }
 
-impl Default for Status1 {
-    fn default() -> Self {
-        Self(0b0010_1000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Interrupt(pub u8): FromRaw, IntoRaw {
         /// Interrupt occurs when VBUS transitions through 4.5 V. This bit typically is used to recognize port partner during startup
         pub i_vbusok: bool @ 7,
@@ -804,23 +685,11 @@ bitfield! {
     }
 }
 
-impl Default for Interrupt {
-    fn default() -> Self {
-        Self(0b0000_0000)
-    }
-}
-
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Default)]
     pub struct Fifo(pub u8): FromRaw, IntoRaw {
         /// Writing to this register writes a byte into the transmit FIFO. Reading from this register reads from the receive FIFO.
         /// Each byte is a coded token. Or a token followed by a fixed number of packed data byte (see token coding in Table 41)
         pub token: u8 @ 0..7,
-    }
-}
-
-impl Default for Fifo {
-    fn default() -> Self {
-        Self(0b0000_0000)
     }
 }
