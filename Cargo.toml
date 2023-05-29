@@ -1,5 +1,5 @@
 [workspace]
-members = ["bridge", "fusb302b", "usb-pd"]
+members = ["zy12pdn", "fusb302b", "usb-pd"]
 
 [profile.release]
 opt-level = "z"
