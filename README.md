@@ -1,8 +1,8 @@
 # usb-pd-rs
 
-[![CI](https://github.com/fmckeogh/usb-pd-bridge/actions/workflows/build.yml/badge.svg)](https://github.com/fmckeogh/usb-pd-bridge/actions/workflows/build.yml)
-[![fusb302b docs](https://img.shields.io/badge/docs-fusb302b-blue)](https://fmckeogh.github.io/usb-pd-bridge/fusb302b/)
-[![usb_pd docs](https://img.shields.io/badge/docs-usb_pd-blue)](https://fmckeogh.github.io/usb-pd-bridge/usb_pd/)
+[![CI](https://github.com/fmckeogh/usb-pd-rs/actions/workflows/build.yml/badge.svg)](https://github.com/fmckeogh/usb-pd-rs/actions/workflows/build.yml)
+[![fusb302b docs](https://img.shields.io/badge/docs-fusb302b-blue)](https://fmckeogh.github.io/usb-pd-rs/fusb302b/)
+[![usb_pd docs](https://img.shields.io/badge/docs-usb_pd-blue)](https://fmckeogh.github.io/usb-pd-rs/usb_pd/)
 
 Rust USB-PD library, driver for the FUSB302B, and firmware for the ZY12PDN USB-PD trigger board (ported from [manuelbl/zy12pdn-oss](https://github.com/manuelbl/zy12pdn-oss)).
 
