@@ -1,7 +1,5 @@
 #![no_std]
 
-use usb_pd::sink::Driver;
-
 pub mod registers;
 
 /// I2C address of FUSB302BMPX
@@ -17,7 +15,7 @@ use {
     fixed_queue::VecDeque,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
-        sink::{event, event_kind, fusb302_state},
+        sink::{Driver as SinkDriver, Event, EventKind, State},
         token::Token,
         Instant,
     },
@@ -42,10 +40,10 @@ pub struct Fusb302b<I2C> {
     rx_message_index: usize,
 
     /// Queue of event that have occurred
-    events: VecDeque<event, 6>,
+    events: VecDeque<Event, 6>,
 
     /// Current attachment state
-    state_: fusb302_state,
+    state_: State,
 
     /// ID for next USB PD message
     next_message_id: u8,
@@ -53,7 +51,7 @@ pub struct Fusb302b<I2C> {
     timestamp: u32,
 }
 
-impl<I2C: Write + WriteRead> Driver for Fusb302b<I2C> {
+impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
     fn init(&mut self) {
         // full reset
         self.i2c
@@ -103,7 +101,7 @@ impl<I2C: Write + WriteRead> Driver for Fusb302b<I2C> {
 
         self.next_message_id = 0;
         self.is_timeout_active = false;
-        self.state_ = fusb302_state::usb_20;
+        self.state_ = State::Usb20;
         self.events.clear();
 
         self.start_sink();
@@ -114,18 +112,18 @@ impl<I2C: Write + WriteRead> Driver for Fusb302b<I2C> {
         self.check_for_interrupts();
 
         if self.has_timeout_expired() {
-            if self.state_ == fusb302_state::usb_pd_wait {
+            if self.state_ == State::UsbPdWait {
                 debug!("{}: No CC activity", self.timestamp);
                 self.establish_retry_wait();
-            } else if self.state_ == fusb302_state::usb_20 {
+            } else if self.state_ == State::Usb20 {
                 self.check_measurement();
-            } else if self.state_ == fusb302_state::usb_retry_wait {
+            } else if self.state_ == State::UsbRetryWait {
                 self.establish_usb_20();
             }
         }
     }
 
-    fn get_event(&mut self) -> Option<event> {
+    fn get_event(&mut self) -> Option<Event> {
         self.events.pop_back()
     }
 
@@ -175,7 +173,7 @@ impl<I2C: Write + WriteRead> Driver for Fusb302b<I2C> {
         self.next_message_id = self.next_message_id.wrapping_add(1);
     }
 
-    fn state(&mut self) -> fusb302_state {
+    fn state(&mut self) -> State {
         self.state_
     }
 }
@@ -190,7 +188,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             rx_message_buf: [[0u8; 64]; 4],
             rx_message_index: 0,
             events: VecDeque::new(),
-            state_: fusb302_state::usb_20,
+            state_: State::Usb20,
             next_message_id: 0,
             timestamp: 0,
         }
@@ -291,14 +289,14 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             {
                 debug!("Good CRC packet");
             } else {
-                if self.state_ != fusb302_state::usb_pd {
+                if self.state_ != State::UsbPd {
                     self.establish_usb_pd();
                 }
                 self.events
-                    .push_front(event {
+                    .push_front(Event {
                         msg_header: header,
                         msg_payload: &payload[0] as *const u8,
-                        kind: event_kind::message_received,
+                        kind: EventKind::MessageReceived,
                     })
                     .ok()
                     .unwrap();
@@ -315,11 +313,11 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
         // Reset FUSB302
         self.init();
-        self.state_ = fusb302_state::usb_retry_wait;
+        self.state_ = State::UsbRetryWait;
         self.start_timeout(500);
         self.events
-            .push_front(event {
-                kind: event_kind::state_changed,
+            .push_front(Event {
+                kind: EventKind::StateChanged,
                 msg_header: 0,
                 msg_payload: &0u8 as *const u8,
             })
@@ -383,17 +381,17 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         }
         self.i2c.set_switches1(switches1);
 
-        self.state_ = fusb302_state::usb_pd_wait;
+        self.state_ = State::UsbPdWait;
         self.start_timeout(300);
     }
 
     fn establish_usb_pd(&mut self) {
-        self.state_ = fusb302_state::usb_pd;
+        self.state_ = State::UsbPd;
         self.cancel_timeout();
         debug!("USB PD comm");
         self.events
-            .push_front(event {
-                kind: event_kind::state_changed,
+            .push_front(Event {
+                kind: EventKind::StateChanged,
                 msg_header: 0,
                 msg_payload: &0u8 as *const u8,
             })

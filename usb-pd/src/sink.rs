@@ -12,36 +12,36 @@ pub trait Driver {
 
     fn poll(&mut self, now: Instant);
 
-    fn get_event(&mut self) -> Option<event>;
+    fn get_event(&mut self) -> Option<Event>;
 
     fn send_message(&mut self, header: Header, payload: &[u8]);
 
-    fn state(&mut self) -> fusb302_state;
+    fn state(&mut self) -> State;
 }
 
 /// FUSB302 state
 #[derive(PartialEq, Clone, Copy)]
-pub enum fusb302_state {
+pub enum State {
     /// VBUS is present, monitoring for activity on CC1/CC2
-    usb_20,
+    Usb20,
     /// Activity on CC1/CC2 has been detected, waiting for first USB PD message
-    usb_pd_wait,
+    UsbPdWait,
     /// Successful USB PD communication established
-    usb_pd,
+    UsbPd,
     /// Wait period after a failure
-    usb_retry_wait,
+    UsbRetryWait,
 }
 
 /// Event kind
-pub enum event_kind {
-    state_changed,
-    message_received,
+pub enum EventKind {
+    StateChanged,
+    MessageReceived,
 }
 
 /// Event queue by FUSB302 instance for clients (such as `pd_sink`)
-pub struct event {
+pub struct Event {
     /// Event kind
-    pub kind: event_kind,
+    pub kind: EventKind,
 
     /// Message header (valid if event_kind = `message_received`)
     pub msg_header: u16,
@@ -117,12 +117,12 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             };
 
             match evt.kind {
-                event_kind::state_changed => {
+                EventKind::StateChanged => {
                     if self.update_protocol() {
                         self.notify(CallbackEvent::ProtocolChanged);
                     }
                 }
-                event_kind::message_received => {
+                EventKind::MessageReceived => {
                     self.handle_msg(evt.msg_header, evt.msg_payload);
                 }
             }
@@ -132,7 +132,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     fn update_protocol(&mut self) -> bool {
         let old_protocol = self.protocol_;
 
-        if self.pd_controller.state() == fusb302_state::usb_pd {
+        if self.pd_controller.state() == State::UsbPd {
             self.protocol_ = Protocol::UsbPd;
         } else {
             self.protocol_ = Protocol::Usb20;
