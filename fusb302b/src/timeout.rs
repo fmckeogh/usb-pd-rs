@@ -1,39 +1,43 @@
-use crate::{Duration, Instant};
+use usb_pd::{Duration, Instant};
 
 /// Timeout wrapper
-#[derive(Default)]
-pub struct Timeout(Option<Instant>);
+pub struct Timeout {
+    now: Instant,
+    expiry: Option<Instant>,
+}
 
 impl Timeout {
     /// Create a new empty timeout
     pub fn new() -> Self {
-        Self::default()
+        Self {
+            now: Instant::from_ticks(0),
+            expiry: None,
+        }
     }
 
-    pub fn new_start(now: Instant, duration: Duration) -> Self {
-        let mut celf = Self::default();
-        celf.start(now, duration);
-        celf
+    /// Update the current time
+    pub fn update(&mut self, now: Instant) {
+        self.now = now;
     }
 
     /// Start a timeout some duration in the future
-    pub fn start(&mut self, now: Instant, duration: Duration) {
-        self.0 = Some(now + duration);
+    pub fn start(&mut self, duration: Duration) {
+        self.expiry = Some(self.now.checked_add_duration(duration).unwrap());
     }
 
     /// Cancel a timeout
     pub fn cancel(&mut self) {
-        self.0 = None;
+        self.expiry = None;
     }
 
     /// Test whether a timeout has expired
-    pub fn is_expired(&mut self, now: Instant) -> bool {
-        let Some(timeout) = self.0 else {
+    pub fn is_expired(&mut self) -> bool {
+        let Some(timeout) = self.expiry else {
             return false;
         };
 
         // is "now" after the timeout?
-        let expired = timeout <= now;
+        let expired = timeout <= self.now;
 
         if expired {
             self.cancel();
