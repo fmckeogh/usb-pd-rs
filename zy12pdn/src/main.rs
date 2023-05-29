@@ -1,26 +1,45 @@
 #![no_main]
 #![no_std]
 
-use {defmt::error, defmt_rtt as _, rtic::app};
+use {
+    crate::rgb::Rgb,
+    bitbang_hal::i2c::I2cBB,
+    defmt::{debug, error, info},
+    defmt_rtt as _,
+    fusb302b::Fusb302b,
+    rtic::app,
+    stm32f0xx_hal::{
+        gpio::{
+            gpioa::{PA10, PA5, PA6, PA7, PA9},
+            OpenDrain, Output, PushPull,
+        },
+        pac::TIM3,
+        timers::Timer,
+    },
+    usb_pd::{
+        callback::{Event, Response},
+        pdo::PowerDataObject,
+        sink::Sink,
+    },
+};
 
 mod rgb;
+
+type Led = Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>;
+type PdSink = Sink<Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>>;
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
     use {
-        crate::rgb::{Color, Rgb},
+        crate::{
+            callback,
+            rgb::{Color, Rgb},
+            Led, PdSink,
+        },
         bitbang_hal::i2c::I2cBB,
         defmt::info,
         fusb302b::Fusb302b,
-        stm32f0xx_hal::{
-            gpio::{
-                gpioa::{self, PA10, PA5, PA6, PA7, PA9},
-                OpenDrain, Output, PushPull,
-            },
-            pac::TIM3,
-            prelude::*,
-            timers::Timer,
-        },
+        stm32f0xx_hal::{gpio::gpioa, prelude::*, timers::Timer},
         systick_monotonic::Systick,
         usb_pd::sink::Sink,
     };
@@ -30,8 +49,8 @@ mod app {
 
     #[local]
     struct Local {
-        led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
-        pd: Sink<Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>>,
+        led: Led,
+        pd: PdSink,
     }
 
     #[monotonic(binds = SysTick, default = true)]
@@ -74,7 +93,7 @@ mod app {
         let mut pd = {
             let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
             let i2c = I2cBB::new(scl, sda, clk);
-            Sink::new(Fusb302b::new(i2c))
+            Sink::new(Fusb302b::new(i2c), &callback)
         };
 
         pd.init();
@@ -92,61 +111,46 @@ mod app {
     }
 }
 
-// fn callback(event: Event) -> Option<Response> {
-//     static mut IS_CONNECTED: bool = false;
+fn callback(event: Event) -> Option<Response> {
+    match event {
+        Event::SourceCapabilitiesChanged(caps) => {
+            info!("Capabilities changed: {}", caps.len());
 
-//     match event {
-//         Event::ProtocolChanged { .. } => {
-//             trace!("protocol changed");
-//             unsafe { IS_CONNECTED = false };
-//         }
-//         Event::PowerAccepted => {
-//             trace!("power accepted");
-//             unsafe { IS_CONNECTED = true };
-//         }
-//         Event::PowerRejected => trace!("power rejected"),
+            // Take maximum voltage
+            let (index, supply) = caps
+                .iter()
+                .enumerate()
+                .filter_map(|(i, cap)| {
+                    if let PowerDataObject::FixedSupply(supply) = cap {
+                        debug!(
+                            "supply @ {}: {}mV {}mA",
+                            i,
+                            supply.voltage() * 50,
+                            supply.max_current() * 10
+                        );
+                        Some((i, supply))
+                    } else {
+                        None
+                    }
+                })
+                .max_by(|(_, x), (_, y)| x.voltage().cmp(&y.voltage()))
+                .unwrap();
 
-//         Event::PowerReady { active_voltage_mv } => trace!("power ready {}mV", active_voltage_mv),
+            info!("requesting supply {:?}@{}", supply, index);
 
-//         Event::SourceCapabilities {
-//             source_capabilities,
-//         } => {
-//             let mut voltage = 0;
-//             let mut current = 0;
-//             let mut index = 0;
+            return Some(Response::RequestPower {
+                index,
+                current: supply.max_current() * 10,
+            });
+        }
+        Event::PowerReady => info!("power ready"),
+        Event::ProtocolChanged => info!("protocol changed"),
+        Event::PowerAccepted => info!("power accepted"),
+        Event::PowerRejected => info!("power rejected"),
+    }
 
-//             for (i, cap) in source_capabilities
-//                 .into_iter()
-//                 .filter(Option::is_some)
-//                 .enumerate()
-//             {
-//                 match cap.unwrap() {
-//                     PowerDataObject::Battery(battery) => {
-//                         trace!("battery: {}", battery.max_voltage())
-//                     }
-//                     PowerDataObject::FixedSupply(fixed) => {
-//                         trace!("fixed: {} {}", fixed.voltage(), fixed.max_current());
-//                         if fixed.voltage() > voltage {
-//                             index = i;
-//                             voltage = fixed.voltage();
-//                             current = fixed.max_current();
-//                         }
-//                     }
-//                     PowerDataObject::VariableSupply(variable) => {
-//                         trace!("variable: {}", variable.max_voltage())
-//                     }
-//                     PowerDataObject::AugmentedPowerDataObject(_) => {
-//                         trace!("aug")
-//                     }
-//                 }
-//             }
-
-//             return Some(Response::Request { index, current });
-//         }
-//     }
-
-//     None
-// }
+    None
+}
 
 #[panic_handler]
 fn panic_handler(_: &core::panic::PanicInfo) -> ! {
