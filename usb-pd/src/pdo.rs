@@ -1,4 +1,8 @@
-use {defmt::Format, proc_bitfield::bitfield};
+use {
+    byteorder::{ByteOrder, LittleEndian},
+    defmt::Format,
+    proc_bitfield::bitfield,
+};
 
 #[derive(Clone, Copy, Format)]
 pub enum PowerDataObject {
@@ -133,5 +137,11 @@ bitfield! {
         pub epr_mode_capable: bool @ 22,
         pub operating_current: u16 @ 10..=19,
         pub maximum_operating_current: u16 @ 0..=9,
+    }
+}
+
+impl FixedVariableRequestDataObject {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
     }
 }

@@ -17,7 +17,7 @@ pub enum Message {
     Accept,
     Reject,
     Ready,
-    SourceCapabilities(Vec<PowerDataObject, 10>),
+    SourceCapabilities(Vec<PowerDataObject, 8>),
     Unknown,
 }
 
@@ -30,7 +30,7 @@ impl Message {
             MessageType::Data(DataMessageType::SourceCapabilities) => Message::SourceCapabilities(
                 payload
                     .chunks_exact(4)
-                    .take(header.num_objects() as usize)
+                    .take(header.num_objects())
                     .map(|buf| PowerDataObjectRaw(LittleEndian::read_u32(buf)))
                     .map(|pdo| match pdo.kind() {
                         0b00 => PowerDataObject::FixedSupply(FixedSupply(pdo.0)),

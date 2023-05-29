@@ -140,7 +140,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
                 .with_receiver(true),
         );
 
-        let payload_len = header.num_objects() as usize * 4;
+        let payload_len = header.num_objects() * 4;
 
         header.set_message_id(self.next_message_id as u8);
 
@@ -397,7 +397,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         unsafe { header_buf.add(1).write_unaligned(buf[2]) };
 
         // Get payload and CRC length
-        let len = Header(*header).num_objects() as usize * 4;
+        let len = Header(*header).num_objects() * 4;
         self.registers.read_fifo(&mut payload[..len + 4]);
 
         return len;
