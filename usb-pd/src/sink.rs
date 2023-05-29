@@ -1,9 +1,10 @@
 use {
     crate::{
-        header::{ControlMessageType, DataMessageType, Header, MessageType, SpecificationRevision},
+        header::{DataMessageType, Header, SpecificationRevision},
+        message::Message,
+        pdo::{AugmentedPowerDataObject, PowerDataObject},
         Instant, PowerRole,
     },
-    core::ptr::copy_nonoverlapping,
     defmt::{debug, trace},
 };
 
@@ -35,13 +36,7 @@ pub enum State {
 /// Event queue by FUSB302 instance for clients (such as `pd_sink`)
 pub enum Event {
     StateChanged,
-    MessageReceived {
-        /// Message header (valid if event_kind = `message_received`)
-        msg_header: u16,
-
-        /// Message payload (valid if event_kind = `message_received`, possibly `null`)
-        msg_payload: *const u8,
-    },
+    MessageReceived(Message),
 }
 
 pub struct Sink<DRIVER> {
@@ -116,11 +111,8 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                         self.notify(CallbackEvent::ProtocolChanged);
                     }
                 }
-                Event::MessageReceived {
-                    msg_header,
-                    msg_payload,
-                } => {
-                    self.handle_msg(msg_header, msg_payload);
+                Event::MessageReceived(message) => {
+                    self.handle_msg(message);
                 }
             }
         }
@@ -141,29 +133,25 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         return self.protocol_ != old_protocol;
     }
 
-    fn handle_msg(&mut self, header: u16, payload: *const u8) {
-        let msg_type = Header(header).message_type();
-
-        match msg_type {
-            MessageType::Data(DataMessageType::SourceCapabilities) => {
-                self.handle_src_cap_msg(header, payload);
-            }
-            MessageType::Control(ControlMessageType::Accept) => {
-                self.notify(CallbackEvent::PowerAccepted);
-            }
-            MessageType::Control(ControlMessageType::Reject) => {
+    fn handle_msg(&mut self, message: Message) {
+        match message {
+            Message::Accept => self.notify(CallbackEvent::PowerAccepted),
+            Message::Reject => {
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
                 self.notify(CallbackEvent::PowerRejected);
             }
-            MessageType::Control(ControlMessageType::PsRdy) => {
+            Message::Ready => {
                 self.active_voltage = self.requested_voltage;
                 self.active_max_current = self.requested_max_current;
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
                 self.notify(CallbackEvent::PowerReady);
             }
-            _ => (),
+            Message::SourceCapabilities(caps) => {
+                self.handle_src_cap_msg(caps);
+            }
+            Message::Unknown => unimplemented!(),
         }
     }
 
@@ -197,44 +185,50 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         }
     }
 
-    fn handle_src_cap_msg(&mut self, header: u16, payload: *const u8) {
-        let n = Header(header).num_objects() as usize;
+    fn handle_src_cap_msg(&mut self, caps: [Option<PowerDataObject>; 10]) {
+        let n = caps.iter().filter_map(|cap| cap.as_ref()).count();
 
         self.num_source_caps = 0;
         self.is_unconstrained = false;
         self.supports_ext_message = false;
 
         for obj_pos in 0..n {
-            let payload = unsafe { payload.add(obj_pos * 4) };
-
             if self.num_source_caps >= self.source_caps.len() as u8 {
                 break;
             }
 
-            let mut capability = 0u32;
-            unsafe { copy_nonoverlapping(payload, &mut capability as *mut u32 as *mut u8, 4) };
+            let capability = caps[obj_pos].unwrap();
 
-            let supply_type: SupplyType = unsafe { core::mem::transmute((capability >> 30) as u8) };
-            let mut max_current = (capability & 0x3ff) * 10;
-            let mut min_voltage = ((capability >> 10) & 0x03ff) * 50;
-            let mut voltage = ((capability >> 20) & 0x03ff) * 50;
+            let supply_type;
 
-            if supply_type == SupplyType::Fixed {
-                voltage = min_voltage;
+            let max_current;
+            let min_voltage;
+            let voltage;
 
-                // Fixed 5V capability contains additional information
-                if voltage == 5000 {
-                    self.is_unconstrained = (capability & (1 << 27)) != 0;
-                    self.supports_ext_message = (capability & (1 << 24)) != 0;
+            match capability {
+                PowerDataObject::FixedSupply(fixed_supply) => {
+                    supply_type = SupplyType::Fixed;
+                    max_current = fixed_supply.max_current() * 10;
+                    min_voltage = fixed_supply.voltage() * 50;
+                    voltage = min_voltage;
+
+                    // Fixed 5V capability contains additional information
+                    if voltage == 5000 {
+                        self.is_unconstrained = fixed_supply.unconstrained_power();
+                        self.supports_ext_message =
+                            fixed_supply.unchunked_extended_messages_supported();
+                    }
                 }
-            } else if supply_type == SupplyType::Pps {
-                if (capability & (3 << 28)) != 0 {
-                    continue;
-                }
+                PowerDataObject::AugmentedPowerDataObject(AugmentedPowerDataObject::SPR(
+                    supply,
+                )) => {
+                    supply_type = SupplyType::Pps;
 
-                max_current = (capability & 0x007f) * 50;
-                min_voltage = ((capability >> 8) & 0x00ff) * 100;
-                voltage = ((capability >> 17) & 0x00ff) * 100;
+                    max_current = supply.maximum_current() as u16 * 50;
+                    min_voltage = supply.min_voltage() as u16 * 100;
+                    voltage = supply.max_voltage() as u16 * 100;
+                }
+                _ => unimplemented!(),
             }
 
             self.source_caps[self.num_source_caps as usize] = SourceCapability {

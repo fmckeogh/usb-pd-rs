@@ -8,11 +8,12 @@ use {
         },
         timeout::Timeout,
     },
-    defmt::{debug, warn},
+    defmt::{debug, trace, warn},
     embedded_hal::blocking::i2c::{Write, WriteRead},
     fixed_queue::VecDeque,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
+        message::Message,
         sink::{Driver as SinkDriver, Event, State},
         token::Token,
         CcPin, Duration, Instant,
@@ -290,11 +291,11 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 if self.state_ != State::UsbPd {
                     self.establish_usb_pd();
                 }
+                let message = Message::parse(Header(header), &payload[..]);
+                trace!("{:?}", message);
+
                 self.events
-                    .push_front(Event::MessageReceived {
-                        msg_header: header,
-                        msg_payload: &payload[0] as *const u8,
-                    })
+                    .push_front(Event::MessageReceived(message))
                     .ok()
                     .unwrap();
                 self.rx_message_index += 1;
