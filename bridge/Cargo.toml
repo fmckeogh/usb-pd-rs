@@ -6,7 +6,8 @@ edition = "2021"
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.3"
-
+cortex-m-rtic = "1.1.4"
+systick-monotonic = "1.0.1"
 stm32f0xx-hal = { version = "0.18.0", features = ["rt", "stm32f030", "stm32f030x4"] }
 
 defmt = "0.3.4"
@@ -17,5 +18,4 @@ fixed-queue = "0.5.1"
 bitbang-hal = "0.3.2"
 
 fusb302b = { path = "../fusb302b" }
-cortex-m-rtic = "1.1.4"
-systick-monotonic = "1.0.1"
+usb-pd = { path = "../usb-pd" }

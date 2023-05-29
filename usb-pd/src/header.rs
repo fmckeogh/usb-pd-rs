@@ -25,6 +25,10 @@ impl Header {
         Header(LittleEndian::read_u16(buf))
     }
 
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u16(buf, self.0);
+    }
+
     pub fn message_type(&self) -> MessageType {
         if self.num_objects() == 0 {
             MessageType::Control(self.message_type_raw().into())

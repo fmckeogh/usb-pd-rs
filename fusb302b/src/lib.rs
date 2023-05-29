@@ -1,382 +1,450 @@
 #![no_std]
 
-use {
-    crate::fsusb302::{event_kind, fusb302_state, Fsusb302},
-    core::ptr::copy_nonoverlapping,
-    defmt::{debug, trace},
-    embedded_hal::blocking::i2c::{Write, WriteRead},
-    usb_pd::header::{
-        ControlMessageType, DataMessageType, Header, MessageType, SpecificationRevision,
-    },
-};
+use usb_pd::sink::Driver;
 
-mod fsusb302;
 pub mod registers;
-
-type Instant = fugit::Instant<u64, 1, 1000>;
 
 /// I2C address of FUSB302BMPX
 const DEVICE_ADDRESS: u8 = 0b0100010;
 
+use {
+    crate::registers::{
+        Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
+        Switches0, Switches1,
+    },
+    defmt::{debug, warn},
+    embedded_hal::blocking::i2c::{Write, WriteRead},
+    fixed_queue::VecDeque,
+    usb_pd::{
+        header::{ControlMessageType, Header, MessageType},
+        sink::{event, event_kind, fusb302_state},
+        token::Token,
+        Instant,
+    },
+};
+
+const NUM_MESSAGE_BUF: usize = 4;
+
 pub struct Fusb302b<I2C> {
-    pd_controller: Fsusb302<I2C>,
-    protocol_: Protocol,
-    supports_ext_message: bool,
-    /// Number of valid elements in `source_caps` array
-    num_source_caps: u8,
+    i2c: Registers<I2C>,
+    /// cc line being measured
+    measuring_cc: u8,
 
-    /// Array of supply capabilities
-    source_caps: [SourceCapability; 10],
+    /// Indicates if the timeout timer is running
+    is_timeout_active: bool,
+    /// Time when the current timer expires
+    timeout_expiration: u32,
 
-    /// Indicates if the source can deliver unconstrained power (e.g. a wall wart)
-    is_unconstrained: bool,
+    /// RX message buffers
+    rx_message_buf: [[u8; 64]; 4],
 
-    /// Requested voltage (in mV)
-    requested_voltage: u16,
+    /// Next RX message index
+    rx_message_index: usize,
 
-    /// Requested maximum current (in mA)
-    requested_max_current: u16,
+    /// Queue of event that have occurred
+    events: VecDeque<event, 6>,
 
-    /// Active voltage (in mV)
-    active_voltage: u16,
+    /// Current attachment state
+    state_: fusb302_state,
 
-    /// Active maximum current (in mA)
-    active_max_current: u16,
+    /// ID for next USB PD message
+    next_message_id: u8,
 
-    /// Specification revision (of last message)
-    spec_rev: u8,
+    timestamp: u32,
+}
+
+impl<I2C: Write + WriteRead> Driver for Fusb302b<I2C> {
+    fn init(&mut self) {
+        // full reset
+        self.i2c
+            .set_reset(Reset::default().with_pd_reset(true).with_sw_reset(true));
+
+        for _ in 0..1_000_000 {
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+        }
+
+        // power up everyting except oscillator
+        self.i2c.set_power(
+            Power::default()
+                .with_bandgap_wake(true)
+                .with_measure_block(true)
+                .with_receiver(true),
+        );
+        // Disable all CC monitoring
+        self.i2c.set_switches0(Switches0(0));
+
+        // Mask all interrupts
+        self.i2c.set_mask1(
+            Mask1::default()
+                .with_m_activity(true)
+                .with_m_alert(true)
+                .with_m_bc_lvl(true)
+                .with_m_collision(true)
+                .with_m_comp_chng(true)
+                .with_m_crc_chk(true)
+                .with_m_vbusok(true)
+                .with_m_wake(true),
+        );
+        // Mask all interrupts
+        self.i2c.set_mask_a(
+            MaskA::default()
+                .with_m_hardrst(true)
+                .with_m_hardsent(true)
+                .with_m_ocp_temp(true)
+                .with_m_retryfail(true)
+                .with_m_softfail(true)
+                .with_m_softrst(true)
+                .with_m_togdone(true)
+                .with_m_txsent(true),
+        );
+
+        // Mask all interrupts (incl. good CRC sent)
+        self.i2c.set_mask_b(MaskB::default().with_m_gcrcsent(true));
+
+        self.next_message_id = 0;
+        self.is_timeout_active = false;
+        self.state_ = fusb302_state::usb_20;
+        self.events.clear();
+
+        self.start_sink();
+    }
+
+    fn poll(&mut self, now: Instant) {
+        self.timestamp = now.ticks() as u32;
+        self.check_for_interrupts();
+
+        if self.has_timeout_expired() {
+            if self.state_ == fusb302_state::usb_pd_wait {
+                debug!("{}: No CC activity", self.timestamp);
+                self.establish_retry_wait();
+            } else if self.state_ == fusb302_state::usb_20 {
+                self.check_measurement();
+            } else if self.state_ == fusb302_state::usb_retry_wait {
+                self.establish_usb_20();
+            }
+        }
+    }
+
+    fn get_event(&mut self) -> Option<event> {
+        self.events.pop_back()
+    }
+
+    fn send_message(&mut self, mut header: Header, payload: &[u8]) {
+        // Enable internal oscillator
+        self.i2c.set_power(
+            Power::default()
+                .with_bandgap_wake(true)
+                .with_internal_oscillator(true)
+                .with_measure_block(true)
+                .with_receiver(true),
+        );
+
+        let payload_len = header.num_objects() as usize * 4;
+
+        header.set_message_id(self.next_message_id as u8);
+
+        let mut buf = [0u8; 40];
+
+        // Create token stream
+        buf[0] = Register::Fifo as u8;
+        buf[1] = Token::Sop1 as u8;
+        buf[2] = Token::Sop1 as u8;
+        buf[3] = Token::Sop1 as u8;
+        buf[4] = Token::Sop2 as u8;
+        buf[5] = Token::PackSym as u8 | (payload_len + 2) as u8;
+        header.to_bytes(&mut buf[6..=7]);
+        if payload_len > 0 {
+            for i in 0..payload.len() {
+                buf[8 + i] = payload[i];
+            }
+        }
+        let mut n = 8 + payload_len;
+        buf[n] = Token::JamCrc as u8;
+        n += 1;
+        buf[n] = Token::Eop as u8;
+        n += 1;
+        buf[n] = Token::TxOff as u8;
+        n += 1;
+        buf[n] = Token::TxOn as u8;
+        n += 1;
+
+        debug!("buf_len: {}", n);
+
+        self.i2c.write_raw(&mut buf[..n]);
+
+        self.next_message_id = self.next_message_id.wrapping_add(1);
+    }
+
+    fn state(&mut self) -> fusb302_state {
+        self.state_
+    }
 }
 
 impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self {
-            pd_controller: Fsusb302::new(i2c),
-            protocol_: Protocol::Usb20,
-            supports_ext_message: false,
-            num_source_caps: 0,
-            source_caps: [SourceCapability {
-                supply_type: SupplyType::Battery,
-                obj_pos: 0,
-                max_current: 0,
-                voltage: 0,
-                min_voltage: 0,
-            }; 10],
-            is_unconstrained: false,
-            requested_voltage: 0,
-            requested_max_current: 0,
-            active_voltage: 5000,
-            active_max_current: 900,
-            spec_rev: 1,
+            i2c: Registers::new(i2c),
+            measuring_cc: 0,
+            is_timeout_active: false,
+            timeout_expiration: 0,
+            rx_message_buf: [[0u8; 64]; 4],
+            rx_message_index: 0,
+            events: VecDeque::new(),
+            state_: fusb302_state::usb_20,
+            next_message_id: 0,
+            timestamp: 0,
         }
     }
 
-    pub fn init(&mut self) {
-        self.pd_controller.init();
-        self.pd_controller.start_sink();
-        self.update_protocol();
+    pub fn start_sink(&mut self) {
+        // As the interrupt line is also used as SWDIO, the FUSB302B interrupt is
+        // not activated until activity on CC1 or CC2 has been detected.
+        // Thus, CC1 and CC2 have to be polled manually even though the FUSB302B
+        // could do it automatically.
+
+        // BMC threshold: 1.35V with a threshold of 85mV
+        self.i2c
+            .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(01));
+
+        self.start_measurement(1);
     }
 
-    pub fn poll(&mut self, now: Instant) {
-        // process events from PD controller
+    fn start_measurement(&mut self, cc: u8) {
+        let mut switches0 = Switches0::default().with_pdwn1(true).with_pdwn2(true);
+        match cc {
+            1 => switches0.set_meas_cc1(true),
+            2 => switches0.set_meas_cc2(true),
+            _ => todo!(),
+        }
+
+        // test CC
+        self.i2c.set_switches0(switches0);
+        self.start_timeout(10);
+        self.measuring_cc = cc;
+    }
+
+    fn check_measurement(&mut self) {
+        let _ = self.i2c.status0();
+        if self.i2c.status0().bc_lvl() == 0 {
+            // No CC activity
+            self.start_measurement(if self.measuring_cc == 1 { 2 } else { 1 });
+            return;
+        }
+
+        self.establish_usb_pd_wait(self.measuring_cc);
+        self.measuring_cc = 0;
+    }
+
+    fn check_for_interrupts(&mut self) {
+        let mut may_have_message = false;
+
+        let interrupt = self.i2c.interrupt();
+        let interrupta = self.i2c.interrupta();
+        let interruptb = self.i2c.interruptb();
+
+        if interrupta.i_hardrst() {
+            debug!("{}: Hard reset\r\n", self.timestamp);
+            self.establish_retry_wait();
+            return;
+        }
+        if interrupta.i_retryfail() {
+            debug!("Retry failed");
+        }
+        if interrupta.i_txsent() {
+            debug!("TX ack");
+            // turn off internal oscillator if TX FIFO is empty
+            if self.i2c.status1().tx_empty() {
+                let power = self.i2c.power().with_internal_oscillator(false);
+                self.i2c.set_power(power);
+            }
+        }
+        if interrupt.i_activity() {
+            may_have_message = true;
+        }
+        if interrupt.i_crc_chk() {
+            debug!("{}: CRC ok", self.timestamp);
+            may_have_message = true;
+        }
+        if interruptb.i_gcrcsent() {
+            debug!("Good CRC sent");
+            may_have_message = true;
+        }
+        if may_have_message {
+            self.check_for_msg();
+        }
+    }
+
+    fn check_for_msg(&mut self) {
         loop {
-            self.pd_controller.poll(now);
-
-            if !self.pd_controller.has_event() {
+            if self.i2c.status1().rx_empty() {
                 break;
             }
 
-            let evt = self.pd_controller.pop_event();
+            let mut header = 0;
+            let mut payload = self.rx_message_buf[self.rx_message_index];
+            self.read_message(&mut header, &mut payload[..]);
 
-            match evt.kind {
-                event_kind::state_changed => {
-                    if self.update_protocol() {
-                        self.notify(CallbackEvent::ProtocolChanged);
-                    }
-                }
-                event_kind::message_received => {
-                    self.handle_msg(evt.msg_header, evt.msg_payload);
-                }
-            }
-        }
-    }
-
-    fn update_protocol(&mut self) -> bool {
-        let old_protocol = self.protocol_;
-
-        if self.pd_controller.state() == fusb302_state::usb_pd {
-            self.protocol_ = Protocol::UsbPd;
-        } else {
-            self.protocol_ = Protocol::Usb20;
-            self.active_voltage = 5000;
-            self.active_max_current = 900;
-            self.num_source_caps = 0;
-        }
-
-        return self.protocol_ != old_protocol;
-    }
-
-    fn handle_msg(&mut self, header: u16, payload: *const u8) {
-        let msg_type = Header(header).message_type();
-
-        match msg_type {
-            MessageType::Data(DataMessageType::SourceCapabilities) => {
-                self.handle_src_cap_msg(header, payload);
-            }
-            MessageType::Control(ControlMessageType::Accept) => {
-                self.notify(CallbackEvent::PowerAccepted);
-            }
-            MessageType::Control(ControlMessageType::Reject) => {
-                self.requested_voltage = 0;
-                self.requested_max_current = 0;
-                self.notify(CallbackEvent::PowerRejected);
-            }
-            MessageType::Control(ControlMessageType::PsRdy) => {
-                self.active_voltage = self.requested_voltage;
-                self.active_max_current = self.requested_max_current;
-                self.requested_voltage = 0;
-                self.requested_max_current = 0;
-                self.notify(CallbackEvent::PowerReady);
-            }
-            _ => (),
-        }
-    }
-
-    fn notify(&mut self, event: CallbackEvent) {
-        let mut voltage = 5000;
-
-        match event {
-            CallbackEvent::SourceCapabilitiesChanged => {
-                debug!("Caps changed: {}", self.num_source_caps);
-
-                // Take maximum voltage
-                for i in 0..self.num_source_caps as usize {
-                    if self.source_caps[i].voltage > voltage {
-                        voltage = self.source_caps[i].voltage;
-                    }
-                }
-
-                // Limit voltage to 20V as the voltage regulator was likely selected to handle 20V max
-                if voltage > 20000 {
-                    voltage = 20000;
-                }
-
-                self.request_power(voltage, 0);
-            }
-
-            CallbackEvent::PowerReady => debug!("Voltage: {}", self.active_voltage),
-
-            CallbackEvent::ProtocolChanged => debug!("protocol_changed"),
-
-            _ => (),
-        }
-    }
-
-    fn handle_src_cap_msg(&mut self, header: u16, payload: *const u8) {
-        let n = Header(header).num_objects() as usize;
-
-        self.num_source_caps = 0;
-        self.is_unconstrained = false;
-        self.supports_ext_message = false;
-
-        for obj_pos in 0..n {
-            let payload = unsafe { payload.add(obj_pos * 4) };
-
-            if self.num_source_caps >= self.source_caps.len() as u8 {
-                break;
-            }
-
-            let mut capability = 0u32;
-            unsafe { copy_nonoverlapping(payload, &mut capability as *mut u32 as *mut u8, 4) };
-
-            let supply_type: SupplyType = unsafe { core::mem::transmute((capability >> 30) as u8) };
-            let mut max_current = (capability & 0x3ff) * 10;
-            let mut min_voltage = ((capability >> 10) & 0x03ff) * 50;
-            let mut voltage = ((capability >> 20) & 0x03ff) * 50;
-
-            if supply_type == SupplyType::Fixed {
-                voltage = min_voltage;
-
-                // Fixed 5V capability contains additional information
-                if voltage == 5000 {
-                    self.is_unconstrained = (capability & (1 << 27)) != 0;
-                    self.supports_ext_message = (capability & (1 << 24)) != 0;
-                }
-            } else if supply_type == SupplyType::Pps {
-                if (capability & (3 << 28)) != 0 {
-                    continue;
-                }
-
-                max_current = (capability & 0x007f) * 50;
-                min_voltage = ((capability >> 8) & 0x00ff) * 100;
-                voltage = ((capability >> 17) & 0x00ff) * 100;
-            }
-
-            self.source_caps[self.num_source_caps as usize] = SourceCapability {
-                supply_type,
-                obj_pos: obj_pos as u8 + 1,
-                max_current: max_current as u16,
-                voltage: voltage as u16,
-                min_voltage: min_voltage as u16,
-            };
-            self.num_source_caps += 1;
-        }
-
-        self.notify(CallbackEvent::SourceCapabilitiesChanged);
-    }
-
-    fn request_power(&mut self, voltage: u16, mut max_current: u16) {
-        // Lookup fixed voltage capabilities first
-        let mut index = usize::MAX;
-        for i in 0..self.num_source_caps as usize {
-            let cap = self.source_caps[i];
-            if cap.supply_type == SupplyType::Fixed
-                && voltage >= cap.min_voltage
-                && voltage <= cap.voltage
+            if !self.i2c.status0().crc_chk() {
+                debug!("Invalid CRC");
+            } else if Header(header).message_type()
+                == MessageType::Control(ControlMessageType::GoodCRC)
             {
-                index = i;
-                if max_current == 0 {
-                    max_current = cap.max_current;
+                debug!("Good CRC packet");
+            } else {
+                if self.state_ != fusb302_state::usb_pd {
+                    self.establish_usb_pd();
                 }
-                break;
+                self.events
+                    .push_front(event {
+                        msg_header: header,
+                        msg_payload: &payload[0] as *const u8,
+                        kind: event_kind::message_received,
+                    })
+                    .ok()
+                    .unwrap();
+                self.rx_message_index += 1;
+                if self.rx_message_index >= NUM_MESSAGE_BUF {
+                    self.rx_message_index = 0;
+                }
             }
         }
-
-        // // Lookup PPS capabilites next
-        // if (index == -1) {
-        //     for (int i = 0; i < num_source_caps; i++) {
-        //         auto cap = source_caps + i;
-        //         if (cap->supply_type == pd_supply_type::pps && voltage >= cap->min_voltage && voltage <= cap->voltage) {
-        //             if (max_current == 0) {
-        //                 max_current = cap->max_current;
-        //                 index = i;
-        //                 break;
-        //             } else if (max_current >= 25 && max_current <= cap->max_current) {
-        //                 index = i;
-        //                 break;
-        //             }
-        //         }
-        //     }
-        // }
-
-        if index == usize::MAX {
-            panic!("Unsupported voltage {} requested", voltage);
-        }
-
-        let res = self.request_power_from_capability(index, voltage, max_current);
-        trace!("got result {} from request power cap", res);
     }
 
-    fn request_power_from_capability(
-        &mut self,
-        index: usize,
-        voltage: u16,
-        max_current: u16,
-    ) -> i32 {
-        if index >= self.num_source_caps as usize {
-            return -1;
-        }
-        let cap = self.source_caps[index];
-        if cap.supply_type != SupplyType::Fixed && cap.supply_type != SupplyType::Pps {
-            return -1;
-        }
-        if voltage < cap.min_voltage || voltage > cap.voltage {
-            return -1;
-        }
-        if max_current < 25 || max_current > cap.max_current {
-            return -1;
-        }
+    fn establish_retry_wait(&mut self) {
+        debug!("Reset");
 
-        // Create 'request' message
-        let mut payload = [0; 4];
-        if cap.supply_type == SupplyType::Fixed {
-            self.set_request_payload_fixed(&mut payload, cap.obj_pos, voltage, max_current);
-        } else {
-            todo!()
-        }
-
-        let header = Header(0)
-            .with_message_type_raw(DataMessageType::Request as u8)
-            .with_num_objects(1)
-            .with_spec_revision(SpecificationRevision::from(self.spec_rev))
-            .with_port_power_role(usb_pd::PowerRole::Sink);
-
-        // Send message
-        self.pd_controller.send_message(header.0, &payload);
-
-        return cap.obj_pos as i32;
+        // Reset FUSB302
+        self.init();
+        self.state_ = fusb302_state::usb_retry_wait;
+        self.start_timeout(500);
+        self.events
+            .push_front(event {
+                kind: event_kind::state_changed,
+                msg_header: 0,
+                msg_payload: &0u8 as *const u8,
+            })
+            .ok()
+            .unwrap();
     }
 
-    fn set_request_payload_fixed(
-        &mut self,
-        payload: &mut [u8],
-        obj_pos: u8,
-        voltage: u16,
-        mut current: u16,
-    ) {
-        let no_usb_suspend = 1;
-        let usb_comm_capable = 2;
-
-        current = (current + 5) / 10;
-        if current > 0x3ff {
-            current = 0x3ff;
-        }
-        payload[0] = (current & 0xff) as u8;
-        payload[1] = (((current >> 8) & 0x03) | ((current << 2) & 0xfc)) as u8;
-        payload[2] = ((current >> 6) & 0x0f) as u8;
-        payload[3] = (obj_pos & 0x07) << 4 | no_usb_suspend | usb_comm_capable;
-
-        self.requested_voltage = voltage;
-        self.requested_max_current = current * 10;
+    fn establish_usb_20(&mut self) {
+        self.start_sink();
     }
-}
 
-/// Power supply type
-#[derive(Clone, Copy, PartialEq)]
-pub enum SupplyType {
-    /// Fixed supply (Vmin = Vmax)
-    Fixed = 0,
-    /// Battery
-    Battery = 1,
-    /// Variable supply (non-battery)
-    Variable = 2,
-    /// Programmable power supply
-    Pps = 3,
-}
+    fn establish_usb_pd_wait(&mut self, cc: u8) {
+        // Enable automatic retries
+        self.i2c
+            .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3));
 
-/// Power deliver protocol
-#[derive(PartialEq, Clone, Copy)]
-enum Protocol {
-    /// No USB PD communication (5V only)
-    Usb20,
-    /// USB PD communication
-    UsbPd,
-}
+        // Enable interrupts for CC activity and CRC_CHK
+        self.i2c.set_mask1(
+            Mask1::default()
+                .with_m_activity(false)
+                .with_m_alert(true)
+                .with_m_bc_lvl(true)
+                .with_m_collision(true)
+                .with_m_comp_chng(true)
+                .with_m_crc_chk(false)
+                .with_m_vbusok(true)
+                .with_m_wake(true),
+        );
 
-/// Power source capability
-#[derive(Clone, Copy)]
-struct SourceCapability {
-    /// Supply type (fixed, batttery, variable etc.)
-    supply_type: SupplyType,
-    /// Position within message (don't touch)
-    obj_pos: u8,
-    /// Maximum current (in mA)
-    max_current: u16,
-    /// Voltage (in mV)
-    voltage: u16,
-    /// Minimum voltage for variable supplies (in mV)
-    min_voltage: u16,
-}
+        // Unmask all interrupts (toggle done, hard reset, tx sent etc.)
+        self.i2c.set_mask_a(MaskA::default());
 
-/// Callback event types
-enum CallbackEvent {
-    /// Power delivery protocol has changed
-    ProtocolChanged,
-    /// Source capabilities have changed (immediately request power)
-    SourceCapabilitiesChanged,
-    /// Requested power has been accepted (but not ready yet)
-    PowerAccepted,
-    /// Requested power has been rejected
-    PowerRejected,
-    /// Requested power is now ready
-    PowerReady,
+        // Enable good CRC sent interrupt
+        self.i2c.set_mask_b(MaskB::default());
+
+        // Enable pull down and CC monitoring
+        let mut switches0 = Switches0(0).with_pdwn1(true).with_pdwn2(true);
+        match cc {
+            1 => {
+                switches0.set_meas_cc1(true);
+            }
+            2 => {
+                switches0.set_meas_cc2(true);
+            }
+            _ => todo!(),
+        }
+        self.i2c.set_switches0(switches0);
+
+        // Configure: auto CRC and BMC transmit on CC pin
+        let mut switches1 = Switches1(0)
+            .with_auto_src(true)
+            .with_specrev(crate::registers::Revision::R2_0);
+        match cc {
+            1 => {
+                switches1.set_txcc1(true);
+            }
+            2 => {
+                switches1.set_txcc2(true);
+            }
+            _ => todo!(),
+        }
+        self.i2c.set_switches1(switches1);
+
+        self.state_ = fusb302_state::usb_pd_wait;
+        self.start_timeout(300);
+    }
+
+    fn establish_usb_pd(&mut self) {
+        self.state_ = fusb302_state::usb_pd;
+        self.cancel_timeout();
+        debug!("USB PD comm");
+        self.events
+            .push_front(event {
+                kind: event_kind::state_changed,
+                msg_header: 0,
+                msg_payload: &0u8 as *const u8,
+            })
+            .ok();
+    }
+
+    fn start_timeout(&mut self, ms: u32) {
+        self.is_timeout_active = true;
+        self.timeout_expiration = self.timestamp + ms;
+    }
+
+    fn has_timeout_expired(&mut self) -> bool {
+        if !self.is_timeout_active {
+            return false;
+        }
+
+        let delta = self.timeout_expiration - self.timestamp;
+        if delta <= 0x8000000 {
+            return false;
+        }
+
+        self.is_timeout_active = false;
+        return true;
+    }
+
+    fn cancel_timeout(&mut self) {
+        self.is_timeout_active = false;
+    }
+
+    fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) -> usize {
+        // Read token and header
+        let mut buf = [0u8; 3];
+        self.i2c.read_fifo(&mut buf);
+
+        // Check for SOP token
+        if (buf[0] & 0xe0) != 0xe0 {
+            // Flush RX FIFO
+            self.i2c
+                .set_control1(Control1::default().with_rx_flush(true));
+            warn!("Flushed RX buffer");
+            return 0;
+        }
+
+        let header_buf = header as *mut u16 as *mut u8;
+        unsafe { header_buf.write_unaligned(buf[1]) };
+        unsafe { header_buf.add(1).write_unaligned(buf[2]) };
+
+        // Get payload and CRC length
+        let len = Header(*header).num_objects() as usize * 4;
+        self.i2c.read_fifo(&mut payload[..len + 4]);
+
+        return len;
+    }
 }

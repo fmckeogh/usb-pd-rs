@@ -99,6 +99,7 @@ dependencies = [
  "fusb302b",
  "stm32f0xx-hal",
  "systick-monotonic",
+ "usb-pd",
 ]
 
 [[package]]
@@ -643,6 +644,7 @@ version = "0.1.0"
 dependencies = [
  "byteorder",
  "defmt",
+ "fugit",
  "proc-bitfield",
 ]
 

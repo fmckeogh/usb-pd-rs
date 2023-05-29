@@ -22,6 +22,7 @@ mod app {
             timers::Timer,
         },
         systick_monotonic::Systick,
+        usb_pd::sink::Sink,
     };
 
     #[shared]
@@ -30,7 +31,7 @@ mod app {
     #[local]
     struct Local {
         led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
-        pd: Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>,
+        pd: Sink<Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>>,
     }
 
     #[monotonic(binds = SysTick, default = true)]
@@ -73,7 +74,7 @@ mod app {
         let mut pd = {
             let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
             let i2c = I2cBB::new(scl, sda, clk);
-            Fusb302b::new(i2c)
+            Sink::new(Fusb302b::new(i2c))
         };
 
         pd.init();
