@@ -15,12 +15,12 @@ pub trait Driver {
 
     fn send_message(&mut self, header: Header, payload: &[u8]);
 
-    fn state(&mut self) -> State;
+    fn state(&mut self) -> DriverState;
 }
 
-/// FUSB302 state
+/// Driver state
 #[derive(PartialEq, Clone, Copy)]
-pub enum State {
+pub enum DriverState {
     /// VBUS is present, monitoring for activity on CC1/CC2
     Usb20,
     /// Activity on CC1/CC2 has been detected, waiting for first USB PD message
@@ -39,6 +39,7 @@ pub enum DriverEvent {
 
 pub struct Sink<DRIVER> {
     driver: DRIVER,
+
     protocol_: Protocol,
 
     /// Requested voltage (in mV)
@@ -103,7 +104,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     fn update_protocol(&mut self) -> bool {
         let old_protocol = self.protocol_;
 
-        if self.driver.state() == State::UsbPd {
+        if self.driver.state() == DriverState::UsbPd {
             self.protocol_ = Protocol::UsbPd;
         } else {
             self.protocol_ = Protocol::Usb20;
