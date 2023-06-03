@@ -26,19 +26,11 @@ mod timeout;
 /// I2C address of FUSB302BMPX
 const DEVICE_ADDRESS: u8 = 0b0100010;
 
-const NUM_MESSAGE_BUF: usize = 4;
-
 pub struct Fusb302b<I2C> {
     registers: Registers<I2C>,
 
     /// Driver timeout logic
     timeout: Timeout,
-
-    /// RX message buffers
-    rx_message_buf: [[u8; 64]; NUM_MESSAGE_BUF],
-
-    /// Next RX message index
-    rx_message_index: usize,
 
     /// Queue of event that have occurred
     events: Queue<DriverEvent, 4>,
@@ -208,10 +200,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self {
             registers: Registers::new(i2c),
-
             timeout: Timeout::new(),
-            rx_message_buf: [[0u8; 64]; NUM_MESSAGE_BUF],
-            rx_message_index: 0,
             events: Queue::new(),
             state: State::Measuring { cc_pin: CcPin::CC1 },
             next_message_id: 0,
@@ -307,7 +296,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     fn check_for_msg(&mut self) {
         while !self.registers.status1().rx_empty() {
             let mut header = 0;
-            let mut payload = self.rx_message_buf[self.rx_message_index];
+            let mut payload = [0; 64];
             self.read_message(&mut header, &mut payload[..]);
 
             if !self.registers.status0().crc_chk() {
@@ -327,10 +316,6 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                     .enqueue(DriverEvent::MessageReceived(message))
                     .ok()
                     .unwrap();
-                self.rx_message_index += 1;
-                if self.rx_message_index >= NUM_MESSAGE_BUF {
-                    self.rx_message_index = 0;
-                }
             }
         }
     }
