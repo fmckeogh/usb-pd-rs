@@ -27,6 +27,7 @@ mod timeout;
 const DEVICE_ADDRESS: u8 = 0b0100010;
 
 pub struct Fusb302b<I2C> {
+    /// FUSB302B registers
     registers: Registers<I2C>,
 
     /// Driver timeout logic
@@ -35,10 +36,11 @@ pub struct Fusb302b<I2C> {
     /// Queue of event that have occurred
     events: Queue<DriverEvent, 4>,
 
+    /// Current driver state
     state: State,
 
     /// ID for next USB PD message
-    next_message_id: u8,
+    message_id: MessageIdCounter,
 }
 
 #[derive(PartialEq)]
@@ -114,7 +116,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         self.registers
             .set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
-        self.next_message_id = 0;
+        self.message_id = MessageIdCounter::default();
         self.state = State::Measuring { cc_pin: CcPin::CC1 };
         while self.events.dequeue().is_some() {}
 
@@ -163,7 +165,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 
         let payload_len = header.num_objects() * 4;
 
-        header.set_message_id(self.next_message_id);
+        header.set_message_id(self.message_id.next());
 
         let mut buf = [0u8; 40];
 
@@ -188,7 +190,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 
         self.registers.write_raw(&mut buf[..n]);
 
-        self.next_message_id = self.next_message_id.wrapping_add(1);
+        self.message_id.inc();
     }
 
     fn state(&mut self) -> DriverState {
@@ -203,11 +205,11 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             timeout: Timeout::new(),
             events: Queue::new(),
             state: State::Measuring { cc_pin: CcPin::CC1 },
-            next_message_id: 0,
+            message_id: MessageIdCounter::default(),
         }
     }
 
-    pub fn start_sink(&mut self) {
+    fn start_sink(&mut self) {
         // As the interrupt line is also used as SWDIO, the FUSB302B interrupt is
         // not activated until activity on CC1 or CC2 has been detected.
         // Thus, CC1 and CC2 have to be polled manually even though the FUSB302B
@@ -217,12 +219,17 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.registers
             .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(0b01));
 
-        self.start_measurement(CcPin::CC1);
+        self.start_measurement();
     }
 
-    fn start_measurement(&mut self, cc: CcPin) {
+    fn start_measurement(&mut self) {
+        let State::Measuring { cc_pin } = self.state else {
+            panic!();
+        };
+
         let mut switches0 = Switches0::default().with_pdwn1(true).with_pdwn2(true);
-        match cc {
+
+        match cc_pin {
             CcPin::CC1 => switches0.set_meas_cc1(true),
             CcPin::CC2 => switches0.set_meas_cc2(true),
         }
@@ -230,28 +237,22 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // test CC
         self.registers.set_switches0(switches0);
         self.timeout.start(Duration::millis(10));
-
-        if let State::Measuring { .. } = self.state {
-        } else {
-            panic!();
-        }
-
-        self.state = State::Measuring { cc_pin: cc };
     }
 
     fn check_measurement(&mut self) {
-        let State::Measuring { cc_pin } = self.state else {
+        let State::Measuring { ref mut cc_pin } = self.state else {
             panic!();
         };
 
         let _ = self.registers.status0();
         if self.registers.status0().bc_lvl() == 0 {
             // No CC activity
-            self.start_measurement(!cc_pin);
+            *cc_pin = !*cc_pin;
+            self.start_measurement();
             return;
         }
 
-        self.establish_usb_pd_wait(cc_pin);
+        self.establish_usb_pd_wait();
     }
 
     fn check_for_interrupts(&mut self) {
@@ -334,7 +335,11 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.start_sink();
     }
 
-    fn establish_usb_pd_wait(&mut self, cc: CcPin) {
+    fn establish_usb_pd_wait(&mut self) {
+        let State::Measuring { cc_pin } = self.state else {
+            panic!();
+        };
+
         // Enable automatic retries
         self.registers
             .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3));
@@ -361,7 +366,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // Enable pull down and CC monitoring
         let switches0 = {
             let switches0 = Switches0(0).with_pdwn1(true).with_pdwn2(true);
-            match cc {
+            match cc_pin {
                 CcPin::CC1 => switches0.with_meas_cc1(true),
                 CcPin::CC2 => switches0.with_meas_cc2(true),
             }
@@ -374,7 +379,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             let switches1 = Switches1(0)
                 .with_auto_src(true)
                 .with_specrev(crate::registers::Revision::R2_0);
-            match cc {
+            match cc_pin {
                 CcPin::CC1 => switches1.with_txcc1(true),
                 CcPin::CC2 => switches1.with_txcc2(true),
             }
@@ -413,5 +418,17 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // Get payload and CRC length
         let len = Header(*header).num_objects() * 4;
         self.registers.read_fifo(&mut payload[..len + 4]);
+    }
+}
+
+#[derive(Default)]
+struct MessageIdCounter(u8);
+
+impl MessageIdCounter {
+    pub fn next(&mut self) -> u8 {
+        self.0
+    }
+    pub fn inc(&mut self) {
+        self.0 = (self.0 + 1) % 8;
     }
 }
