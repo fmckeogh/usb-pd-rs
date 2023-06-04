@@ -31,15 +31,26 @@ pub struct Rgb<R, G, B> {
     red: R,
     green: G,
     blue: B,
+    color: Color,
 }
 
 impl<R: StatefulOutputPin, G: StatefulOutputPin, B: StatefulOutputPin> Rgb<R, G, B> {
     pub fn new(red: R, green: G, blue: B) -> Self {
-        Self { red, green, blue }
+        Self {
+            red,
+            green,
+            blue,
+            color: Color::Black,
+        }
     }
 
     pub fn set(&mut self, color: Color) {
+        self.color = color;
         self.set_inner(color as u8)
+    }
+
+    pub fn get(&self) -> Color {
+        self.color
     }
 
     fn set_inner(&mut self, value: u8) {

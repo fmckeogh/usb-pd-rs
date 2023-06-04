@@ -39,18 +39,30 @@ mod app {
         bitbang_hal::i2c::I2cBB,
         defmt::info,
         fusb302b::Fusb302b,
-        stm32f0xx_hal::{gpio::gpioa, prelude::*, timers::Timer},
+        stm32f0xx_hal::{
+            gpio::{
+                gpioa,
+                gpiof::{self, PF1},
+                Input, PullUp,
+            },
+            pac::EXTI,
+            prelude::*,
+            timers::Timer,
+        },
         systick_monotonic::Systick,
         usb_pd::sink::Sink,
     };
 
     #[shared]
-    struct Shared {}
+    struct Shared {
+        led: Led,
+    }
 
     #[local]
     struct Local {
-        led: Led,
         pd: PdSink,
+        button: PF1<Input<PullUp>>,
+        exti: EXTI,
     }
 
     #[monotonic(binds = SysTick, default = true)]
@@ -58,15 +70,30 @@ mod app {
 
     #[init]
     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
+        let rcc = cx.device.RCC;
+        let syscfg = cx.device.SYSCFG;
+        let exti = cx.device.EXTI;
+
+        // Enable clock for SYSCFG
+        rcc.apb2enr.modify(|_, w| w.syscfgen().set_bit());
+
         let mut flash = cx.device.FLASH;
-        let mut rcc = cx
-            .device
-            .RCC
-            .configure()
-            .sysclk(32u32.mhz())
-            .freeze(&mut flash);
+        let mut rcc = rcc.configure().sysclk(32u32.mhz()).freeze(&mut flash);
 
         let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().0);
+
+        let gpiof::Parts { pf1, .. } = cx.device.GPIOF.split(&mut rcc);
+
+        let button = cortex_m::interrupt::free(move |cs| pf1.into_pull_up_input(cs));
+
+        // Enable external interrupt for PF1
+        syscfg.exticr1.modify(|_, w| w.exti1().pf1());
+
+        // Set interrupt request mask for line 1
+        exti.imr.modify(|_, w| w.mr1().set_bit());
+
+        // Set interrupt rising trigger for line 1
+        exti.ftsr.modify(|_, w| w.tr1().set_bit());
 
         let gpioa::Parts {
             pa5,
@@ -100,14 +127,29 @@ mod app {
 
         info!("init done");
 
-        (Shared {}, Local { led, pd }, init::Monotonics(mono))
+        (
+            Shared { led },
+            Local { pd, button, exti },
+            init::Monotonics(mono),
+        )
     }
 
-    #[idle(local = [pd, led])]
+    #[idle(local = [pd])]
     fn idle(cx: idle::Context) -> ! {
         loop {
             cx.local.pd.poll(monotonics::now());
         }
+    }
+
+    #[task(binds = EXTI0_1, local = [button, exti], shared = [led])]
+    fn button(mut cx: button::Context) {
+        info!("button rising edge");
+
+        cx.shared
+            .led
+            .lock(|led| led.set(Color::from((led.get() as u8 + 1) % 8)));
+
+        cx.local.exti.pr.write(|w| w.pr1().clear());
     }
 }
 
