@@ -16,4 +16,4 @@ The `usb-pd` library implements the USB-PD logic. A `Source` or `Sink` have corr
 $ DEFMT_LOG=trace DEFMT_RTT_BUFFER_SIZE=128 cargo r -r
 ```
 
-MCU has limited flash so it will not build without the release profile and it's recommend to reduce the RTT buffer size.
+The MCU on the ZY12PDN board has limited flash so it will not fit without the release profile and a reduced RTT buffer size of 128 bytes.
