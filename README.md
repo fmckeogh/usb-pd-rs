@@ -1,6 +1,6 @@
 # usb-pd-rs
 
-[![CI](https://github.com/fmckeogh/usb-pd-rs/actions/workflows/build.yml/badge.svg)](https://github.com/fmckeogh/usb-pd-rs/actions/workflows/build.yml)
+[![CI](https://github.com/fmckeogh/usb-pd-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/fmckeogh/usb-pd-rs/actions/workflows/ci.yml)
 [![fusb302b docs](https://img.shields.io/badge/docs-fusb302b-blue)](https://fmckeogh.github.io/usb-pd-rs/fusb302b/)
 [![usb_pd docs](https://img.shields.io/badge/docs-usb_pd-blue)](https://fmckeogh.github.io/usb-pd-rs/usb_pd/)
 
