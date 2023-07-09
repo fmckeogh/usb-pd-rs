@@ -4,9 +4,10 @@
 use {
     crate::rgb::Rgb,
     bitbang_hal::i2c::I2cBB,
-    defmt::{debug, error, info},
+    defmt::{debug, info},
     defmt_rtt as _,
     fusb302b::Fusb302b,
+    panic_probe as _,
     rtic::app,
     stm32f0xx_hal::{
         gpio::{
@@ -192,10 +193,4 @@ fn callback(event: Event) -> Option<Response> {
     }
 
     None
-}
-
-#[panic_handler]
-fn panic_handler(_: &core::panic::PanicInfo) -> ! {
-    error!("panic!");
-    loop {}
 }
