@@ -1,7 +1,13 @@
 [package]
 name = "usb-pd"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2021"
+description = "USB-PD `no_std` library with source and sink support."
+documentation = "https://docs.rs/usb-pd"
+repository = "https://github.com/fmckeogh/usb-pd-rs"
+homepage = "https://github.com/fmckeogh/usb-pd-rs"
+license = "MIT"
+keywords = ["nostd", "usb-pd", "power", "embedded"]
 
 [dependencies]
 proc-bitfield = "0.2.4"
