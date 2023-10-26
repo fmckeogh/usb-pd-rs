@@ -1,11 +1,13 @@
-use crate::{
-    header::{DataMessageType, Header, SpecificationRevision},
-    message::Message,
-    pdo::FixedVariableRequestDataObject,
-    Instant, PowerRole,
+use {
+    crate::{
+        header::{DataMessageType, Header, SpecificationRevision},
+        message::Message,
+        pdo::{FixedVariableRequestDataObject, PowerDataObject},
+        Instant, PowerRole,
+    },
+    defmt::{warn, Format},
+    heapless::Vec,
 };
-use defmt::warn;
-use {crate::pdo::PowerDataObject, defmt::Format, heapless::Vec};
 
 pub trait Driver {
     fn init(&mut self);

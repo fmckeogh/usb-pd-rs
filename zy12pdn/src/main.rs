@@ -30,10 +30,9 @@ type PdSink = Sink<Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
-    use crate::handle_event;
-
     use {
         crate::{
+            handle_event,
             rgb::{Color, Rgb},
             Led, PdSink,
         },

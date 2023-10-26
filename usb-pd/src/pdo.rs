@@ -173,7 +173,8 @@ impl From<u8> for VDMCommandType {
             1 => VDMCommandType::ResponderACK,
             2 => VDMCommandType::ResponderNAK,
             3 => VDMCommandType::ResponderBSY,
-            _ => panic!("Cannot convert {:} to VDMCommandType", value), // Illegal values shall panic.
+            _ => panic!("Cannot convert {:} to VDMCommandType", value), /* Illegal values shall
+                                                                         * panic. */
         }
     }
 }

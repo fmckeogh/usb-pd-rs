@@ -1,7 +1,5 @@
 #![no_std]
 
-use core::ops::Not;
-
 pub mod header;
 pub mod message;
 pub mod pdo;
@@ -18,7 +16,7 @@ pub enum CcPin {
     CC2,
 }
 
-impl Not for CcPin {
+impl core::ops::Not for CcPin {
     type Output = CcPin;
 
     fn not(self) -> Self::Output {
