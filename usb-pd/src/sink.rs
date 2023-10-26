@@ -5,7 +5,7 @@ use crate::{
     pdo::FixedVariableRequestDataObject,
     Instant, PowerRole,
 };
-use defmt::{debug, warn};
+use defmt::warn;
 
 pub trait Driver {
     fn init(&mut self);
