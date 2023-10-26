@@ -5,6 +5,7 @@ use crate::{
     pdo::FixedVariableRequestDataObject,
     Instant, PowerRole,
 };
+use defmt::warn;
 
 pub trait Driver {
     fn init(&mut self);
@@ -132,6 +133,25 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             }
             Message::SourceCapabilities(caps) => {
                 self.notify(CallbackEvent::SourceCapabilitiesChanged(caps))
+            }
+            Message::VendorDefined(payload) => match payload {
+                crate::pdo::VDMHeader::Structured(hdr) => {
+                    warn!(
+                        "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD: {:?}",
+                        hdr.command_type(),
+                        hdr.command()
+                    );
+                }
+                crate::pdo::VDMHeader::Unstructured(hdr) => {
+                    warn!(
+                        "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA: {:x}",
+                        hdr.standard_or_vid(),
+                        hdr.data()
+                    );
+                }
+            },
+            Message::SoftReset => {
+                warn!("UNHANDLED: Soft RESET request.");
             }
             Message::Unknown => unimplemented!(),
         }
