@@ -5,6 +5,7 @@ use crate::{
     pdo::FixedVariableRequestDataObject,
     Instant, PowerRole,
 };
+use defmt::{debug, warn};
 
 pub trait Driver {
     fn init(&mut self);
@@ -132,6 +133,12 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             }
             Message::SourceCapabilities(caps) => {
                 self.notify(CallbackEvent::SourceCapabilitiesChanged(caps))
+            }
+            Message::VendorDefined(payload) => {
+                warn!("UNHANDLED: Vendor Defined Message! {:?}, {:?}, {:?}", payload.vdm_type(), payload.command_type(), payload.command());
+            }
+            Message::SoftReset => {
+                warn!("UNHANDLED: Soft RESET request.");
             }
             Message::Unknown => unimplemented!(),
         }

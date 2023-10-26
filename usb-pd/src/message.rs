@@ -1,3 +1,7 @@
+use defmt::trace;
+
+use crate::pdo::VDMHeader;
+
 use {
     crate::{
         header::{ControlMessageType, DataMessageType, Header, MessageType},
@@ -18,6 +22,8 @@ pub enum Message {
     Reject,
     Ready,
     SourceCapabilities(Vec<PowerDataObject, 8>),
+    VendorDefined(VDMHeader),  // TODO: Incomplete
+    SoftReset,
     Unknown,
 }
 
@@ -27,6 +33,7 @@ impl Message {
             MessageType::Control(ControlMessageType::Accept) => Message::Accept,
             MessageType::Control(ControlMessageType::Reject) => Message::Reject,
             MessageType::Control(ControlMessageType::PsRdy) => Message::Ready,
+            MessageType::Control(ControlMessageType::SoftReset) => Message::SoftReset,
             MessageType::Data(DataMessageType::SourceCapabilities) => Message::SourceCapabilities(
                 payload
                     .chunks_exact(4)
@@ -51,6 +58,33 @@ impl Message {
                     })
                     .collect(),
             ),
+            MessageType::Data(DataMessageType::VendorDefined) => {
+                // Keep for now...
+                // let len = payload.len();
+                // let num_obj = header.num_objects();
+                //debug!("VENDOR: {:?}, {:?}, {:?}", len, num_obj, payload);
+
+                let header = payload
+                .chunks_exact(4)
+                .take(1)
+                .map(|h| {
+                    VDMHeader(LittleEndian::read_u32(h))
+                })
+                .next().unwrap();
+
+                trace!("VDM RX:");
+                trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(), header.vdm_version());
+                trace!("HEADER: CMD:: TYPE: {:?}, CMD: {:?}", header.command_type(), header.command());
+
+                // Keep for now...
+                // let pkt = payload
+                //     .chunks_exact(1)
+                //     .take(8)
+                //     .map(|i| i[0])
+                //     .collect::<Vec<u8, 8>>();
+
+                Message::VendorDefined(header)
+            }
             _ => {
                 warn!("unknown message type");
                 Message::Unknown
