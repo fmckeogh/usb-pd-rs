@@ -2,7 +2,6 @@
 
 use core::ops::Not;
 
-pub mod callback;
 pub mod header;
 pub mod message;
 pub mod pdo;

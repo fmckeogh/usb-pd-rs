@@ -18,9 +18,8 @@ use {
         timers::Timer,
     },
     usb_pd::{
-        callback::{Event, Response},
         pdo::PowerDataObject,
-        sink::Sink,
+        sink::{Event, Request, Sink},
     },
 };
 
@@ -31,9 +30,10 @@ type PdSink = Sink<Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
+    use crate::handle_event;
+
     use {
         crate::{
-            callback,
             rgb::{Color, Rgb},
             Led, PdSink,
         },
@@ -121,7 +121,7 @@ mod app {
         let mut pd = {
             let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
             let i2c = I2cBB::new(scl, sda, clk);
-            Sink::new(Fusb302b::new(i2c), &callback)
+            Sink::new(Fusb302b::new(i2c))
         };
 
         pd.init();
@@ -138,7 +138,14 @@ mod app {
     #[idle(local = [pd])]
     fn idle(cx: idle::Context) -> ! {
         loop {
-            cx.local.pd.poll(monotonics::now());
+            cx.local
+                .pd
+                // poll PD driver
+                .poll(monotonics::now())
+                // handle event if one was returned from sink
+                .and_then(handle_event)
+                // make request if one was returned from handler
+                .map(|req| cx.local.pd.request(req));
         }
     }
 
@@ -154,7 +161,7 @@ mod app {
     }
 }
 
-fn callback(event: Event) -> Option<Response> {
+fn handle_event(event: Event) -> Option<Request> {
     match event {
         Event::SourceCapabilitiesChanged(caps) => {
             info!("Capabilities changed: {}", caps.len());
@@ -181,7 +188,7 @@ fn callback(event: Event) -> Option<Response> {
 
             info!("requesting supply {:?}@{}", supply, index);
 
-            return Some(Response::RequestPower {
+            return Some(Request::RequestPower {
                 index,
                 current: supply.max_current() * 10,
             });
