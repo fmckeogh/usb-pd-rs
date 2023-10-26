@@ -149,7 +149,7 @@ impl FixedVariableRequestDataObject {
 
 #[derive(Clone, Copy, Format)]
 pub enum VDMCommandType {
-    Initiator,
+    InitiatorREQ,
     ResponderACK,
     ResponderNAK,
     ResponderBSY,
@@ -158,7 +158,7 @@ pub enum VDMCommandType {
 impl From<VDMCommandType> for u8 {
     fn from(value: VDMCommandType) -> Self {
         match value {
-            VDMCommandType::Initiator => 0,
+            VDMCommandType::InitiatorREQ => 0,
             VDMCommandType::ResponderACK => 1,
             VDMCommandType::ResponderNAK => 2,
             VDMCommandType::ResponderBSY => 3,
@@ -169,11 +169,11 @@ impl From<VDMCommandType> for u8 {
 impl From<u8> for VDMCommandType {
     fn from(value: u8) -> Self {
         match value {
-            0 => VDMCommandType::Initiator,
+            0 => VDMCommandType::InitiatorREQ,
             1 => VDMCommandType::ResponderACK,
             2 => VDMCommandType::ResponderNAK,
             3 => VDMCommandType::ResponderBSY,
-            _ => panic!("Cannot convert {:} to VDMCommandType", value) // Illegal values shall panic.
+            _ => panic!("Cannot convert {:} to VDMCommandType", value), // Illegal values shall panic.
         }
     }
 }
@@ -216,7 +216,7 @@ impl From<u8> for VDMCommand {
             0x10 => VDMCommand::DisplayPortStatus,
             0x11 => VDMCommand::DisplayPortConfig,
             // TODO: Find document that explains what 0x12-0x1f are (DP_SID??)
-            _ => panic!("Cannot convert {:} to VDMCommand", value) // Illegal values shall panic.
+            _ => panic!("Cannot convert {:} to VDMCommand", value), // Illegal values shall panic.
         }
     }
 }
@@ -224,7 +224,7 @@ impl From<u8> for VDMCommand {
 #[derive(Clone, Copy, Format)]
 pub enum VDMType {
     Unstructured,
-    Structured
+    Structured,
 }
 
 impl From<VDMType> for bool {
@@ -237,7 +237,6 @@ impl From<VDMType> for bool {
 }
 
 impl From<bool> for VDMType {
-
     fn from(value: bool) -> Self {
         match value {
             true => VDMType::Structured,
@@ -247,13 +246,30 @@ impl From<bool> for VDMType {
 }
 
 #[derive(Clone, Copy, Format)]
-pub enum VendorCommand {
-    DiscoverIdentity(VDMIdentityHeader),
+pub enum VDMHeader {
+    Structured(VDMHeaderStructured),
+    Unstructured(VDMHeaderUnstructured),
 }
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct VDMHeader(pub u32): FromRaw, IntoRaw {
+    pub struct VDMHeaderRaw(pub u32): FromRaw, IntoRaw {
+        /// VDM Standard or Vendor ID
+        pub standard_or_vid: u16 @ 16..=31,
+        /// VDM Type (Unstructured/Structured)
+        pub vdm_type: bool [VDMType] @ 15,
+    }
+}
+
+impl VDMHeaderRaw {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct VDMHeaderStructured(pub u32): FromRaw, IntoRaw {
         /// VDM Standard or Vendor ID
         pub standard_or_vid: u16 @ 16..=31,
         /// VDM Type (Unstructured/Structured)
@@ -269,7 +285,25 @@ bitfield! {
     }
 }
 
-impl VDMHeader {
+impl VDMHeaderStructured {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct VDMHeaderUnstructured(pub u32): FromRaw, IntoRaw {
+        /// VDM Standard or Vendor ID
+        pub standard_or_vid: u16 @ 16..=31,
+        /// VDM Type (Unstructured/Structured)
+        pub vdm_type: bool [VDMType] @ 15,
+        /// Message defined
+        pub data: u16 @ 0..=14
+    }
+}
+
+impl VDMHeaderUnstructured {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
     }

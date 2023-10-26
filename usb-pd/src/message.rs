@@ -1,14 +1,13 @@
 use defmt::trace;
 
-use crate::pdo::VDMHeader;
-
 use {
     crate::{
         header::{ControlMessageType, DataMessageType, Header, MessageType},
         pdo::{
             AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery,
             EPRAdjustableVoltageSupply, FixedSupply, PowerDataObject, PowerDataObjectRaw,
-            SPRProgrammablePowerSupply, VariableSupply,
+            SPRProgrammablePowerSupply, VDMHeader, VDMHeaderRaw, VDMHeaderStructured,
+            VDMHeaderUnstructured, VDMType, VariableSupply,
         },
     },
     byteorder::{ByteOrder, LittleEndian},
@@ -22,7 +21,7 @@ pub enum Message {
     Reject,
     Ready,
     SourceCapabilities(Vec<PowerDataObject, 8>),
-    VendorDefined(VDMHeader),  // TODO: Incomplete
+    VendorDefined(VDMHeader), // TODO: Incomplete
     SoftReset,
     Unknown,
 }
@@ -65,16 +64,25 @@ impl Message {
                 //debug!("VENDOR: {:?}, {:?}, {:?}", len, num_obj, payload);
 
                 let header = payload
-                .chunks_exact(4)
-                .take(1)
-                .map(|h| {
-                    VDMHeader(LittleEndian::read_u32(h))
-                })
-                .next().unwrap();
+                    .chunks_exact(4)
+                    .take(1)
+                    .map(|h| {
+                        let raw = VDMHeaderRaw(LittleEndian::read_u32(h));
+                        match raw.vdm_type() {
+                            VDMType::Unstructured => {
+                                VDMHeader::Unstructured(VDMHeaderUnstructured(raw.0))
+                            }
+                            VDMType::Structured => {
+                                VDMHeader::Structured(VDMHeaderStructured(raw.0))
+                            }
+                        }
+                    })
+                    .next()
+                    .unwrap();
 
-                trace!("VDM RX:");
-                trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(), header.vdm_version());
-                trace!("HEADER: CMD:: TYPE: {:?}, CMD: {:?}", header.command_type(), header.command());
+                trace!("VDM RX: {:?}", header);
+                // trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(), header.vdm_version());
+                // trace!("HEADER: CMD:: TYPE: {:?}, CMD: {:?}", header.command_type(), header.command());
 
                 // Keep for now...
                 // let pkt = payload
