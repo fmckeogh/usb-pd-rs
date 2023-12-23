@@ -1,4 +1,8 @@
+#[cfg(not(feature = "embassy"))]
 use usb_pd::{Duration, Instant};
+
+#[cfg(feature = "embassy")]
+use embassy_time::{Duration, Instant};
 
 /// Timeout wrapper
 pub struct Timeout {
@@ -21,8 +25,14 @@ impl Timeout {
     }
 
     /// Start a timeout some duration in the future
+    #[cfg(not(feature = "embassy"))]
     pub fn start(&mut self, duration: Duration) {
         self.expiry = Some(self.now.checked_add_duration(duration).unwrap());
+    }
+
+    #[cfg(feature = "embassy")]
+    pub fn start(&mut self, duration: Duration) {
+        self.expiry = Some(self.now.checked_add(duration).unwrap());
     }
 
     /// Cancel a timeout

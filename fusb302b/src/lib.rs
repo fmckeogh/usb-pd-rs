@@ -16,9 +16,15 @@ use {
         message::Message,
         sink::{Driver as SinkDriver, DriverEvent, DriverState},
         token::Token,
-        CcPin, Duration, Instant,
+        CcPin,
     },
 };
+
+#[cfg(not(feature = "embassy"))]
+use usb_pd::{Duration, Instant};
+
+#[cfg(feature = "embassy")]
+use embassy_time::{Duration, Instant};
 
 pub mod registers;
 mod timeout;
@@ -229,6 +235,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.start_measurement();
     }
 
+    #[cfg(not(feature = "embassy"))]
     fn start_measurement(&mut self) {
         let State::Measuring { cc_pin } = self.state else {
             panic!();
@@ -244,6 +251,24 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // test CC
         self.registers.set_switches0(switches0);
         self.timeout.start(Duration::millis(10));
+    }
+
+    #[cfg(feature = "embassy")]
+    fn start_measurement(&mut self) {
+        let State::Measuring { cc_pin } = self.state else {
+            panic!();
+        };
+
+        let mut switches0 = Switches0::default().with_pdwn1(true).with_pdwn2(true);
+
+        match cc_pin {
+            CcPin::CC1 => switches0.set_meas_cc1(true),
+            CcPin::CC2 => switches0.set_meas_cc2(true),
+        }
+
+        // test CC
+        self.registers.set_switches0(switches0);
+        self.timeout.start(Duration::from_millis(10));
     }
 
     fn check_measurement(&mut self) {
@@ -331,6 +356,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         }
     }
 
+    #[cfg(not(feature = "embassy"))]
     fn establish_retry_wait(&mut self) {
         debug!("Reset");
 
@@ -338,6 +364,17 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.init();
         self.state = State::RetryWait;
         self.timeout.start(Duration::millis(500));
+        self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
+    }
+
+    #[cfg(feature = "embassy")]
+    fn establish_retry_wait(&mut self) {
+        debug!("Reset");
+
+        // Reset FUSB302
+        self.init();
+        self.state = State::RetryWait;
+        self.timeout.start(Duration::from_millis(500));
         self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
     }
 
@@ -404,7 +441,11 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.registers.set_switches1(switches1);
 
         self.state = State::Ready;
-        self.timeout.start(Duration::millis(300u64))
+        #[cfg(not(feature = "embassy"))]
+        self.timeout.start(Duration::millis(300u64));
+        #[cfg(feature = "embassy")]
+        self.timeout.start(Duration::from_millis(300u64));
+
     }
 
     fn establish_usb_pd(&mut self) {
