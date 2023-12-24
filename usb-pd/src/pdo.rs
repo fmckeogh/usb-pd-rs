@@ -147,7 +147,7 @@ impl FixedVariableRequestDataObject {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Format, Debug)]
 pub enum VDMCommandType {
     InitiatorREQ,
     ResponderACK,
@@ -190,6 +190,7 @@ pub enum VDMCommand {
     DisplayPortStatus,
     DisplayPortConfig,
 }
+
 impl From<VDMCommand> for u8 {
     fn from(value: VDMCommand) -> Self {
         match value {
@@ -252,6 +253,13 @@ pub enum VDMHeader {
     Unstructured(VDMHeaderUnstructured),
 }
 
+#[derive(Clone, Copy, Format)]
+pub enum VendorDataObject {
+    IDHeader(VDMIdentityHeader),
+    CertStat(CertStatVDO),
+    Product(ProductVDO),
+}
+
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
     pub struct VDMHeaderRaw(pub u32): FromRaw, IntoRaw {
@@ -276,7 +284,8 @@ bitfield! {
         /// VDM Type (Unstructured/Structured)
         pub vdm_type: bool [VDMType] @ 15,
         /// Structured VDM Version
-        pub vdm_version: u8 @ 13..=14,
+        pub vdm_version_major: u8 @ 13..=14,
+        pub vdm_version_minor: u8 @ 11..=12,
         /// Object Position
         pub object_position: u8 @ 8..=10,
         /// Command Type
@@ -289,6 +298,56 @@ bitfield! {
 impl VDMHeaderStructured {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+#[derive(Clone, Copy, Format)]
+pub enum VDMVersionMajor {
+    Version10,
+    Version2x,
+}
+
+impl From<VDMVersionMajor> for u8 {
+    fn from(value: VDMVersionMajor) -> Self {
+        match value {
+            VDMVersionMajor::Version10 => 0b00,
+            VDMVersionMajor::Version2x => 0b01,
+        }
+    }
+}
+
+impl From<u8> for VDMVersionMajor {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => VDMVersionMajor::Version10,
+            0b01 => VDMVersionMajor::Version2x,
+            _ => panic!("Cannot convert {:} to VDMVersionMajor", value), // Illegal values shall panic.
+        }
+    }
+}
+
+#[derive(Clone, Copy, Format)]
+pub enum VDMVersionMinor {
+    Version20,
+    Version21,
+}
+
+impl From<VDMVersionMinor> for u8 {
+    fn from(value: VDMVersionMinor) -> Self {
+        match value {
+            VDMVersionMinor::Version20 => 0b00,
+            VDMVersionMinor::Version21 => 0b01,
+        }
+    }
+}
+
+impl From<u8> for VDMVersionMinor {
+    fn from(value: u8) -> Self {
+        match value {
+            0b00 => VDMVersionMinor::Version20,
+            0b01 => VDMVersionMinor::Version21,
+            _ => panic!("Cannot convert {:} to VDMVersionMinor", value), // Illegal values shall panic.
+        }
     }
 }
 
@@ -318,19 +377,135 @@ bitfield! {
         /// Device data capable
         pub device_data: bool @ 30,
         /// Product type UFP
-        pub product_type_ufp: u8 @ 27..=29,
+        pub product_type_ufp: u8 [SOPProductTypeUFP] @ 27..=29,
         /// Modal Operation Supported
         pub modal_supported: bool @ 26,
         /// Product type DFP
-        pub product_type_dfp: u8 @ 23..=25,
+        pub product_type_dfp: u8 [SOPProductTypeDFP] @ 23..=25,
         /// Connector type
-        pub connector_type: u8 @ 21..=22,
+        pub connector_type: u8 [ConnectorType] @ 21..=22,
         /// VID
         pub vid: u16 @ 0..=15,
     }
 }
 
 impl VDMIdentityHeader {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+#[derive(Clone, Copy, Format)]
+pub enum SOPProductTypeUFP {
+    NotUFP,
+    PDUSBHub,
+    PDUSBPeripheral,
+    PSD,
+}
+
+impl From<SOPProductTypeUFP> for u8 {
+    fn from(value: SOPProductTypeUFP) -> Self {
+        match value {
+            SOPProductTypeUFP::NotUFP => 0b000,
+            SOPProductTypeUFP::PDUSBHub => 0b001,
+            SOPProductTypeUFP::PDUSBPeripheral => 0b010,
+            SOPProductTypeUFP::PSD => 0b011,
+        }
+    }
+}
+
+impl From<u8> for SOPProductTypeUFP {
+    fn from(value: u8) -> Self {
+        match value {
+            0b000 => SOPProductTypeUFP::NotUFP,
+            0b001 => SOPProductTypeUFP::PDUSBHub,
+            0b010 => SOPProductTypeUFP::PDUSBPeripheral,
+            0b011 => SOPProductTypeUFP::PSD,
+
+            _ => panic!("Cannot convert {:} to SOPProductTypeUFP", value), // Illegal values shall panic.
+        }
+    }
+}
+
+#[derive(Clone, Copy, Format)]
+pub enum SOPProductTypeDFP {
+    NotDFP,
+    PDUSBHub,
+    PDUSBHost,
+    PowerBrick,
+}
+
+impl From<SOPProductTypeDFP> for u8 {
+    fn from(value: SOPProductTypeDFP) -> Self {
+        match value {
+            SOPProductTypeDFP::NotDFP => 0b000,
+            SOPProductTypeDFP::PDUSBHub => 0b001,
+            SOPProductTypeDFP::PDUSBHost => 0b010,
+            SOPProductTypeDFP::PowerBrick => 0b011,
+        }
+    }
+}
+
+impl From<u8> for SOPProductTypeDFP {
+    fn from(value: u8) -> Self {
+        match value {
+            0b000 => SOPProductTypeDFP::NotDFP,
+            0b001 => SOPProductTypeDFP::PDUSBHub,
+            0b010 => SOPProductTypeDFP::PDUSBHost,
+            0b011 => SOPProductTypeDFP::PowerBrick,
+
+            _ => panic!("Cannot convert {:} to SOPProductTypeDFP", value), // Illegal values shall panic.
+        }
+    }
+}
+
+pub enum ConnectorType {
+    USBTypeCReceptacle,
+    USBTypeCPlug,
+}
+
+impl From<ConnectorType> for u8 {
+    fn from(value: ConnectorType) -> Self {
+        match value {
+            ConnectorType::USBTypeCReceptacle => 0b10,
+            ConnectorType::USBTypeCPlug => 0b11,
+        }
+    }
+}
+
+impl From<u8> for ConnectorType {
+    fn from(value: u8) -> Self {
+        match value {
+            0b10 => ConnectorType::USBTypeCReceptacle,
+            0b11 => ConnectorType::USBTypeCPlug,
+            _ => panic!("Cannot convert {:} to ConnectorType", value), // Illegal values shall panic.
+        }
+    }
+}
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct CertStatVDO(pub u32): FromRaw, IntoRaw {
+        /// XID
+        pub xid: u32 @ 0..=31,
+    }
+}
+
+impl CertStatVDO {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct ProductVDO(pub u32): FromRaw, IntoRaw {
+        /// USB Product ID
+        pub pid: u16 @ 16..=31,
+        pub bcd_device: u16 @ 0..=15,
+    }
+}
+
+impl ProductVDO {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
     }

@@ -11,6 +11,9 @@ use {
 
 #[cfg(not(feature = "embassy"))]
 use crate::Instant;
+
+use crate::pdo::VDMHeader;
+
 #[cfg(feature = "embassy")]
 use embassy_time::Instant;
 
@@ -40,6 +43,8 @@ pub enum Event {
     PowerRejected,
     /// Requested power is now ready
     PowerReady,
+    /// VDM received
+    VDMReceived((VDMHeader, Vec<u32, 7>)),
 }
 
 /// Requests made to sink
@@ -167,8 +172,8 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 Some(Event::PowerReady)
             }
             Message::SourceCapabilities(caps) => Some(Event::SourceCapabilitiesChanged(caps)),
-            Message::VendorDefined(payload) => {
-                match payload {
+            Message::VendorDefined((hdr, data)) => {
+                match hdr {
                     crate::pdo::VDMHeader::Structured(hdr) => {
                         warn!(
                             "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD: {:?}",
@@ -184,7 +189,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                         );
                     }
                 }
-                None
+                Some(Event::VDMReceived((hdr, data)))
             }
             Message::SoftReset => {
                 warn!("UNHANDLED: Soft RESET request.");
