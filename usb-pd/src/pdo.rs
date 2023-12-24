@@ -247,17 +247,71 @@ impl From<bool> for VDMType {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Format, Debug)]
 pub enum VDMHeader {
     Structured(VDMHeaderStructured),
     Unstructured(VDMHeaderUnstructured),
 }
 
-#[derive(Clone, Copy, Format)]
+impl VDMHeader {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        match self {
+            VDMHeader::Structured(header) => header.to_bytes(buf),
+            VDMHeader::Unstructured(header) => header.to_bytes(buf),
+        }
+    }
+}
+
+impl From<VDMHeader> for u32 {
+    fn from(value: VDMHeader) -> Self {
+        match value {
+            VDMHeader::Structured(header) => header.into(),
+            VDMHeader::Unstructured(header) => header.into(),
+        }
+    }
+}
+
+impl From<u32> for VDMHeader {
+    fn from(value: u32) -> Self {
+        let header = VDMHeaderRaw(value);
+        match header.vdm_type() {
+            VDMType::Structured => VDMHeader::Structured(VDMHeaderStructured(value)),
+            VDMType::Unstructured => VDMHeader::Unstructured(VDMHeaderUnstructured(value)),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Format, Debug)]
 pub enum VendorDataObject {
+    VDMHeader(VDMHeader),
     IDHeader(VDMIdentityHeader),
     CertStat(CertStatVDO),
     Product(ProductVDO),
+    UFPType(UFPTypeVDO),
+}
+
+impl VendorDataObject {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        match self {
+            VendorDataObject::VDMHeader(header) => header.to_bytes(buf),
+            VendorDataObject::IDHeader(header) => header.to_bytes(buf),
+            VendorDataObject::CertStat(header) => header.to_bytes(buf),
+            VendorDataObject::Product(header) => header.to_bytes(buf),
+            VendorDataObject::UFPType(header) => header.to_bytes(buf),
+        }
+    }
+}
+
+impl From<VendorDataObject> for u32 {
+    fn from(value: VendorDataObject) -> Self {
+        match value {
+            VendorDataObject::VDMHeader(header) => header.into(),
+            VendorDataObject::IDHeader(header) => header.into(),
+            VendorDataObject::CertStat(header) => header.into(),
+            VendorDataObject::Product(header) => header.into(),
+            VendorDataObject::UFPType(header) => header.into(),
+        }
+    }
 }
 
 bitfield! {
@@ -277,7 +331,7 @@ impl VDMHeaderRaw {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Debug)]
     pub struct VDMHeaderStructured(pub u32): FromRaw, IntoRaw {
         /// VDM Standard or Vendor ID
         pub standard_or_vid: u16 @ 16..=31,
@@ -352,7 +406,7 @@ impl From<u8> for VDMVersionMinor {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Debug)]
     pub struct VDMHeaderUnstructured(pub u32): FromRaw, IntoRaw {
         /// VDM Standard or Vendor ID
         pub standard_or_vid: u16 @ 16..=31,
@@ -370,7 +424,7 @@ impl VDMHeaderUnstructured {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Debug)]
     pub struct VDMIdentityHeader(pub u32): FromRaw, IntoRaw {
         /// Host data capable
         pub host_data: bool @ 31,
@@ -483,7 +537,7 @@ impl From<u8> for ConnectorType {
     }
 }
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Debug)]
     pub struct CertStatVDO(pub u32): FromRaw, IntoRaw {
         /// XID
         pub xid: u32 @ 0..=31,
@@ -497,7 +551,7 @@ impl CertStatVDO {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Debug)]
     pub struct ProductVDO(pub u32): FromRaw, IntoRaw {
         /// USB Product ID
         pub pid: u16 @ 16..=31,
@@ -508,6 +562,122 @@ bitfield! {
 impl ProductVDO {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format, Debug)]
+    pub struct UFPTypeVDO(pub u32): FromRaw, IntoRaw {
+        /// USB Product ID
+        pub version: u8 @ 29..=31,
+        pub device_capability: u8 @ 24..=27,
+        pub vconn_power: u8 @ 8..=10,
+        pub vconn_required: bool @ 7,
+        pub vbus_required: bool @ 6,
+        pub alternate_modes: u8 @ 3..=5,
+        pub usb_highest_speed: u8 @ 0..=2,
+    }
+}
+
+impl UFPTypeVDO {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+#[derive(Clone, Copy, Format)]
+pub enum USBHighestSpeed {
+    USB20Only,
+    USB32Gen1,
+    USB32Gen2,
+    USB40Gen3,
+    USB40Gen4,
+}
+
+impl From<USBHighestSpeed> for u8 {
+    fn from(value: USBHighestSpeed) -> Self {
+        match value {
+            USBHighestSpeed::USB20Only => 0b000,
+            USBHighestSpeed::USB32Gen1 => 0b001,
+            USBHighestSpeed::USB32Gen2 => 0b010,
+            USBHighestSpeed::USB40Gen3 => 0b011,
+            USBHighestSpeed::USB40Gen4 => 0b100,
+        }
+    }
+}
+
+impl From<u8> for USBHighestSpeed {
+    fn from(value: u8) -> Self {
+        match value {
+            0b000 => USBHighestSpeed::USB20Only,
+            0b001 => USBHighestSpeed::USB32Gen1,
+            0b010 => USBHighestSpeed::USB32Gen2,
+            0b011 => USBHighestSpeed::USB40Gen3,
+            0b100 => USBHighestSpeed::USB40Gen4,
+            _ => panic!("Cannot convert {:} to USBHighestSpeed", value), // Illegal values shall panic.
+        }
+    }
+}
+
+#[derive(Clone, Copy, Format)]
+pub enum VconnPower {
+    P1W,
+    P1_5W,
+    P2W,
+    P3W,
+    P4W,
+    P5W,
+    P6W,
+}
+
+impl From<VconnPower> for u8 {
+    fn from(value: VconnPower) -> Self {
+        match value {
+            VconnPower::P1W => 0b000,
+            VconnPower::P1_5W => 0b001,
+            VconnPower::P2W => 0b010,
+            VconnPower::P3W => 0b011,
+            VconnPower::P4W => 0b100,
+            VconnPower::P5W => 0b101,
+            VconnPower::P6W => 0b110,
+        }
+    }
+}
+
+impl From<u8> for VconnPower {
+    fn from(value: u8) -> Self {
+        match value {
+            0b000 => VconnPower::P1W,
+            0b001 => VconnPower::P1_5W,
+            0b010 => VconnPower::P2W,
+            0b011 => VconnPower::P3W,
+            0b100 => VconnPower::P4W,
+            0b101 => VconnPower::P5W,
+            0b110 => VconnPower::P6W,
+            _ => panic!("Cannot convert {:} to VconnPower", value), // Illegal values shall panic.
+        }
+    }
+}
+
+#[derive(Clone, Copy, Format)]
+pub enum UFPVDOVersion {
+    Version1_3,
+}
+
+impl From<UFPVDOVersion> for u8 {
+    fn from(value: UFPVDOVersion) -> Self {
+        match value {
+            UFPVDOVersion::Version1_3 => 0b011,
+        }
+    }
+}
+
+impl From<u8> for UFPVDOVersion {
+    fn from(value: u8) -> Self {
+        match value {
+            0b011 => UFPVDOVersion::Version1_3,
+            _ => panic!("Cannot convert {:} to UFPVDOVersion", value), // Illegal values shall panic.
+        }
     }
 }
 
