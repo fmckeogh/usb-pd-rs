@@ -8,7 +8,7 @@ use {
         },
         timeout::Timeout,
     },
-    defmt::{debug, trace, warn},
+    defmt::{debug, warn},
     embedded_hal::blocking::i2c::{Write, WriteRead},
     heapless::spsc::Queue,
     usb_pd::{

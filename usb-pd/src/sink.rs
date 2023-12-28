@@ -12,7 +12,7 @@ use {
 
 use embassy_time::Instant;
 
-use crate::pdo::{VDMHeader, VDMIdentityHeader, CertStatVDO, ProductVDO, UFPTypeVDO, self};
+use crate::vdo::{VDMHeader, VDMIdentityHeader, CertStatVDO, ProductVDO, UFPTypeVDO, self};
 
 
 pub trait Driver {
@@ -163,15 +163,15 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                     .with_port_power_role(PowerRole::Sink)
                     .with_spec_revision(SpecificationRevision::from(self.spec_rev));
 
-                let vdm_header_vdo = pdo::VDMHeader::Structured(
-                    pdo::VDMHeaderStructured(0)
-                        .with_command(pdo::VDMCommand::DiscoverIdentity)
-                        .with_command_type(pdo::VDMCommandType::ResponderACK)
+                let vdm_header_vdo = vdo::VDMHeader::Structured(
+                    vdo::VDMHeaderStructured(0)
+                        .with_command(vdo::VDMCommand::DiscoverIdentity)
+                        .with_command_type(vdo::VDMCommandType::ResponderACK)
                         .with_object_position(0) // 0 Must be used for descover identity
                         .with_standard_or_vid(0xff00) // PD SID must be used with descover identity
-                        .with_vdm_type(pdo::VDMType::Structured)
-                        .with_vdm_version_major(pdo::VDMVersionMajor::Version2x.into())
-                        .with_vdm_version_minor(pdo::VDMVersionMinor::Version20.into()),
+                        .with_vdm_type(vdo::VDMType::Structured)
+                        .with_vdm_version_major(vdo::VDMVersionMajor::Version2x.into())
+                        .with_vdm_version_minor(vdo::VDMVersionMinor::Version20.into()),
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 identity.to_bytes(&mut payload[4..8]);
@@ -196,15 +196,15 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                     .with_port_power_role(PowerRole::Sink)
                     .with_spec_revision(SpecificationRevision::from(self.spec_rev));
 
-                let vdm_header_vdo = pdo::VDMHeader::Structured(
-                    pdo::VDMHeaderStructured(0)
-                        .with_command(pdo::VDMCommand::DiscoverSVIDS)
-                        .with_command_type(pdo::VDMCommandType::InitiatorREQ)
+                let vdm_header_vdo = vdo::VDMHeader::Structured(
+                    vdo::VDMHeaderStructured(0)
+                        .with_command(vdo::VDMCommand::DiscoverSVIDS)
+                        .with_command_type(vdo::VDMCommandType::InitiatorREQ)
                         .with_object_position(0) // 0 Must be used for discover SVIDS
                         .with_standard_or_vid(0xff00) // PD SID must be used with discover SVIDS
-                        .with_vdm_type(pdo::VDMType::Structured)
-                        .with_vdm_version_major(pdo::VDMVersionMajor::Version10.into())
-                        .with_vdm_version_minor(pdo::VDMVersionMinor::Version20.into()),
+                        .with_vdm_type(vdo::VDMType::Structured)
+                        .with_vdm_version_major(vdo::VDMVersionMajor::Version10.into())
+                        .with_vdm_version_minor(vdo::VDMVersionMinor::Version20.into()),
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 defmt::debug!("Sending VDM {:x}", payload);
@@ -221,15 +221,15 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                     .with_port_power_role(PowerRole::Sink)
                     .with_spec_revision(SpecificationRevision::from(self.spec_rev));
 
-                let vdm_header_vdo = pdo::VDMHeader::Structured(
-                    pdo::VDMHeaderStructured(0)
-                        .with_command(pdo::VDMCommand::DiscoverIdentity)
-                        .with_command_type(pdo::VDMCommandType::InitiatorREQ)
+                let vdm_header_vdo = vdo::VDMHeader::Structured(
+                    vdo::VDMHeaderStructured(0)
+                        .with_command(vdo::VDMCommand::DiscoverIdentity)
+                        .with_command_type(vdo::VDMCommandType::InitiatorREQ)
                         .with_object_position(0) // 0 Must be used for descover identity
                         .with_standard_or_vid(0xff00) // PD SID must be used with descover identity
-                        .with_vdm_type(pdo::VDMType::Structured)
-                        .with_vdm_version_major(pdo::VDMVersionMajor::Version10.into())
-                        .with_vdm_version_minor(pdo::VDMVersionMinor::Version20.into()),
+                        .with_vdm_type(vdo::VDMType::Structured)
+                        .with_vdm_version_major(vdo::VDMVersionMajor::Version10.into())
+                        .with_vdm_version_minor(vdo::VDMVersionMinor::Version20.into()),
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 defmt::debug!("Sending VDM {:x}", payload);
@@ -271,14 +271,14 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             Message::SourceCapabilities(caps) => Some(Event::SourceCapabilitiesChanged(caps)),
             Message::VendorDefined((hdr, data)) => {
                 match hdr {
-                    crate::pdo::VDMHeader::Structured(hdr) => {
+                    crate::vdo::VDMHeader::Structured(hdr) => {
                         warn!(
                             "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD: {:?}",
                             hdr.command_type(),
                             hdr.command()
                         );
                     }
-                    crate::pdo::VDMHeader::Unstructured(hdr) => {
+                    crate::vdo::VDMHeader::Unstructured(hdr) => {
                         warn!(
                             "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA: {:x}",
                             hdr.standard_or_vid(),

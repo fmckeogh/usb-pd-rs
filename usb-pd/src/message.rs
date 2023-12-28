@@ -4,9 +4,9 @@ use {
         pdo::{
             AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery,
             EPRAdjustableVoltageSupply, FixedSupply, PowerDataObject, PowerDataObjectRaw,
-            SPRProgrammablePowerSupply, VDMHeader, VDMHeaderRaw, VDMHeaderStructured,
-            VDMHeaderUnstructured, VDMType, VariableSupply,
+            SPRProgrammablePowerSupply, VariableSupply,
         },
+        vdo::{VDMHeader, VDMHeaderRaw, VDMHeaderStructured, VDMHeaderUnstructured, VDMType},
     },
     byteorder::{ByteOrder, LittleEndian},
     defmt::{trace, warn, Format},
