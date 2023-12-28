@@ -3,11 +3,14 @@ use {
         header::{DataMessageType, Header, SpecificationRevision},
         message::Message,
         pdo::{FixedVariableRequestDataObject, PowerDataObject},
-        Instant, PowerRole,
+        PowerRole,
     },
     defmt::{warn, Format},
     heapless::Vec,
 };
+
+use embassy_time::Instant;
+
 
 pub trait Driver {
     fn init(&mut self);

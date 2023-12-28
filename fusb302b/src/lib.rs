@@ -16,9 +16,11 @@ use {
         message::Message,
         sink::{Driver as SinkDriver, DriverEvent, DriverState},
         token::Token,
-        CcPin, Duration, Instant,
+        CcPin,
     },
 };
+
+use embassy_time::{Duration, Instant};
 
 pub mod registers;
 mod timeout;
@@ -243,7 +245,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
         // test CC
         self.registers.set_switches0(switches0);
-        self.timeout.start(Duration::millis(10));
+        self.timeout.start(Duration::from_millis(10));
     }
 
     fn check_measurement(&mut self) {
@@ -337,7 +339,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // Reset FUSB302
         self.init();
         self.state = State::RetryWait;
-        self.timeout.start(Duration::millis(500));
+        self.timeout.start(Duration::from_millis(500));
         self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
     }
 
@@ -404,7 +406,8 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.registers.set_switches1(switches1);
 
         self.state = State::Ready;
-        self.timeout.start(Duration::millis(300u64))
+        self.timeout.start(Duration::from_millis(300u64));
+
     }
 
     fn establish_usb_pd(&mut self) {
