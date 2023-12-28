@@ -9,9 +9,6 @@ use {
     heapless::Vec,
 };
 
-#[cfg(not(feature = "embassy"))]
-use crate::Instant;
-#[cfg(feature = "embassy")]
 use embassy_time::Instant;
 
 
