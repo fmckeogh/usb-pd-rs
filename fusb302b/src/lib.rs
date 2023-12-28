@@ -345,7 +345,7 @@ impl<I2C: I2c> Fusb302b<I2C> {
 
                 let message = Message::parse(Header(header), &payload[..]);
 
-                trace!("{:?}, {:x}:{:x}", message, header, payload);
+                debug!("{:?}, {:x}:{:x}", message, header, payload);
 
                 if self.message.replace(message).is_some() {
                     panic!("pending message already set");
