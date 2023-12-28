@@ -20,7 +20,4 @@ proc-bitfield = "0.3.0"
 
 usb-pd = { path = "../usb-pd" }
 
-embassy-time = { version = "0.2", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime"], optional = true }
-
-[features]
-embassy = ["dep:embassy-time"]
+embassy-time = { version = "0.2", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime"]}

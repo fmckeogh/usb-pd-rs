@@ -9,13 +9,6 @@ use {
     heapless::Vec,
 };
 
-#[cfg(not(feature = "embassy"))]
-use crate::Instant;
-
-use crate::{pdo::{VDMHeader, VDMIdentityHeader, CertStatVDO, ProductVDO, UFPTypeVDO, self}, DataRole};
-
-use defmt::debug;
-#[cfg(feature = "embassy")]
 use embassy_time::Instant;
 
 
