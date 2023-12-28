@@ -4,12 +4,15 @@ use {
         message::Message,
         pdo::{FixedVariableRequestDataObject, PowerDataObject},
         PowerRole,
+        DataRole
     },
     defmt::{warn, Format},
     heapless::Vec,
 };
 
 use embassy_time::Instant;
+
+use crate::pdo::{VDMHeader, VDMIdentityHeader, CertStatVDO, ProductVDO, UFPTypeVDO, self};
 
 
 pub trait Driver {
@@ -149,7 +152,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 product_type_ufp,
                 //product_type_dfp,
             } => {
-                debug!("ACKDiscoverIdentity");
+                defmt::debug!("ACKDiscoverIdentity");
                 // The size of this array will actually change depending on data...
                 // TODO: Fix this!
                 let mut payload = [0; 5*4];
@@ -179,12 +182,12 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 //     // 20..24 are padding bytes
                 //     product_type_dfp.to_bytes(&mut payload[24..32]);
                 // }
-                debug!("Sending VDM {:x}", payload);
+                defmt::debug!("Sending VDM {:x}", payload);
                 self.driver.send_message(header, &payload);
-                debug!("Sent VDM");
+                defmt::debug!("Sent VDM");
             },
             Request::REQDiscoverSVIDS => {
-                debug!("REQDiscoverSVIDS");
+                defmt::debug!("REQDiscoverSVIDS");
                 let mut payload = [0; 4];
                 let header = Header(0)
                     .with_message_type_raw(DataMessageType::VendorDefined as u8)
@@ -204,12 +207,12 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                         .with_vdm_version_minor(pdo::VDMVersionMinor::Version20.into()),
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
-                debug!("Sending VDM {:x}", payload);
+                defmt::debug!("Sending VDM {:x}", payload);
                 self.driver.send_message(header, &payload);
-                debug!("Sent VDM");
+                defmt::debug!("Sent VDM");
             },
             Request::REQDiscoverIdentity => {
-                debug!("REQDiscoverIdentity");
+                defmt::debug!("REQDiscoverIdentity");
                 let mut payload = [0; 4];
                 let header = Header(0)
                     .with_message_type_raw(DataMessageType::VendorDefined as u8)
@@ -229,9 +232,9 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                         .with_vdm_version_minor(pdo::VDMVersionMinor::Version20.into()),
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
-                debug!("Sending VDM {:x}", payload);
+                defmt::debug!("Sending VDM {:x}", payload);
                 self.driver.send_message(header, &payload);
-                debug!("Sent VDM");
+                defmt::debug!("Sent VDM");
             },
         }
     }
