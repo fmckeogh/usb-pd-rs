@@ -130,6 +130,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
     fn poll(&mut self, now: Instant) {
         self.timeout.update(now);
 
+        //debug!("Check for interrupts");
         self.check_for_interrupts();
 
         match self.state {
@@ -346,7 +347,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
                 let message = Message::parse(Header(header), &payload[..]);
 
-                trace!("{:?}, {:x}:{:x}", message, header, payload);
+                debug!("{:?}, {:x}:{:x}", message, header, payload);
 
                 self.events
                     .enqueue(DriverEvent::MessageReceived(message))
