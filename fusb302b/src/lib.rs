@@ -3,7 +3,7 @@
 use {
     crate::{
         registers::{
-            Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
+            Control0, Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
             Switches0, Switches1,
         },
         timeout::Timeout,
@@ -13,7 +13,7 @@ use {
     heapless::spsc::Queue,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
-        message::Message,
+        messages::Message,
         sink::{Driver as SinkDriver, DriverEvent, DriverState},
         token::Token,
         CcPin,
@@ -117,6 +117,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         self.registers
             .set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
+        self.registers.set_control0(Control0::default().with_int_mask(false).with_host_cur(01));
         self.state = State::Measuring { cc_pin: CcPin::CC1 };
         while self.events.dequeue().is_some() {}
 
