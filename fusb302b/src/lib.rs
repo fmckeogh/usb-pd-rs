@@ -10,11 +10,10 @@ use {
     },
     defmt::{debug, trace, warn},
     embedded_hal::blocking::i2c::{Write, WriteRead},
-    heapless::spsc::Queue,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
         message::Message,
-        sink::{Driver as SinkDriver, DriverEvent, DriverState},
+        sink::{Driver as SinkDriver, DriverState},
         token::Token,
         CcPin, Duration, Instant,
     },
@@ -33,8 +32,11 @@ pub struct Fusb302b<I2C> {
     /// Driver timeout logic
     timeout: Timeout,
 
-    /// Queue of events that have occurred to be retrieved by USB-PD library
-    events: Queue<DriverEvent, 16>,
+    /// Pending message received by driver
+    message: Option<Message>,
+
+    /// Flag set when protocol is changed, reset on next poll
+    did_change_protocol: bool,
 
     /// Current driver state
     state: State,
@@ -116,7 +118,8 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
             .set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
         self.state = State::Measuring { cc_pin: CcPin::CC1 };
-        while self.events.dequeue().is_some() {}
+        self.message = None;
+        self.did_change_protocol = false;
 
         self.start_sink();
     }
@@ -148,8 +151,14 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         }
     }
 
-    fn get_event(&mut self) -> Option<DriverEvent> {
-        self.events.dequeue()
+    fn get_pending_message(&mut self) -> Option<Message> {
+        self.message.take()
+    }
+
+    fn did_change_protocol(&mut self) -> bool {
+        let res = self.did_change_protocol;
+        self.did_change_protocol = false;
+        res
     }
 
     fn send_message(&mut self, mut header: Header, payload: &[u8]) {
@@ -211,7 +220,8 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         Self {
             registers: Registers::new(i2c),
             timeout: Timeout::new(),
-            events: Queue::new(),
+            message: None,
+            did_change_protocol: false,
             state: State::Measuring { cc_pin: CcPin::CC1 },
         }
     }
@@ -323,10 +333,9 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
                 trace!("{:?}, {:x}:{:x}", message, header, payload);
 
-                self.events
-                    .enqueue(DriverEvent::MessageReceived(message))
-                    .ok()
-                    .expect("Event queue full")
+                if self.message.replace(message).is_some() {
+                    panic!("pending message already set");
+                }
             }
         }
     }
@@ -338,7 +347,8 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.init();
         self.state = State::RetryWait;
         self.timeout.start(Duration::millis(500));
-        self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
+
+        self.did_change_protocol = true;
     }
 
     fn establish_usb_20(&mut self) {
@@ -413,7 +423,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         };
         self.timeout.cancel();
         debug!("USB PD comm");
-        self.events.enqueue(DriverEvent::StateChanged).ok();
+        self.did_change_protocol = true;
     }
 
     fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) {

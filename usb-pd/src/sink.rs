@@ -14,7 +14,9 @@ pub trait Driver {
 
     fn poll(&mut self, now: Instant);
 
-    fn get_event(&mut self) -> Option<DriverEvent>;
+    fn get_pending_message(&mut self) -> Option<Message>;
+
+    fn did_change_protocol(&mut self) -> bool;
 
     fn send_message(&mut self, header: Header, payload: &[u8]);
 
@@ -57,12 +59,6 @@ pub enum DriverState {
     UsbPd,
     /// Wait period after a failure
     UsbRetryWait,
-}
-
-/// Event queue by FUSB302 instance for clients (such as `pd_sink`)
-pub enum DriverEvent {
-    StateChanged,
-    MessageReceived(Message),
 }
 
 pub struct Sink<DRIVER> {
@@ -109,19 +105,18 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         // poll inner driver
         self.driver.poll(now);
 
-        let Some(evt) = self.driver.get_event() else {
-            return None;
+        if let Some(message) = self.driver.get_pending_message() {
+            return self.handle_msg(message);
         };
 
-        match evt {
-            DriverEvent::StateChanged => {
-                if self.update_protocol() {
-                    Some(Event::ProtocolChanged)
-                } else {
-                    None
-                }
+        if self.driver.did_change_protocol() {
+            if self.update_protocol() {
+                Some(Event::ProtocolChanged)
+            } else {
+                None
             }
-            DriverEvent::MessageReceived(message) => self.handle_msg(message),
+        } else {
+            None
         }
     }
 
