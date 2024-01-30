@@ -1,4 +1,4 @@
-use embedded_hal::digital::v2::{PinState, StatefulOutputPin};
+use embedded_hal::digital::{OutputPin, PinState};
 
 #[derive(Clone, Copy)]
 pub enum Color {
@@ -34,7 +34,7 @@ pub struct Rgb<R, G, B> {
     color: Color,
 }
 
-impl<R: StatefulOutputPin, G: StatefulOutputPin, B: StatefulOutputPin> Rgb<R, G, B> {
+impl<R: OutputPin, G: OutputPin, B: OutputPin> Rgb<R, G, B> {
     pub fn new(red: R, green: G, blue: B) -> Self {
         Self {
             red,
