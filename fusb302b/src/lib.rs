@@ -414,7 +414,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.registers.set_switches1(switches1);
 
         self.state = State::Ready;
-        self.timeout.start(Duration::millis(300u64))
+        self.timeout.start(Duration::millis(300u32))
     }
 
     fn establish_usb_pd(&mut self) {

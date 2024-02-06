@@ -1,20 +1,24 @@
 #![no_main]
 #![no_std]
+#![feature(type_alias_impl_trait)]
 
 use {
-    crate::rgb::Rgb,
+    crate::rgb::{Color, Rgb},
     bitbang_hal::i2c::I2cBB,
     defmt::{debug, info},
     defmt_rtt as _,
     fusb302b::Fusb302b,
     panic_probe as _,
     rtic::app,
+    rtic_monotonics::systick::*,
     stm32f0xx_hal::{
         gpio::{
-            gpioa::{PA10, PA5, PA6, PA7, PA9},
-            OpenDrain, Output, PushPull,
+            gpioa::{self, PA10, PA5, PA6, PA7, PA9},
+            gpiof::{self, PF1},
+            Input, OpenDrain, Output, PullUp, PushPull,
         },
-        pac::TIM3,
+        pac::{EXTI, TIM3},
+        prelude::*,
         timers::Timer,
     },
     usb_pd::{
@@ -30,28 +34,9 @@ type PdSink = Sink<Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
-    use {
-        crate::{
-            handle_event,
-            rgb::{Color, Rgb},
-            Led, PdSink,
-        },
-        bitbang_hal::i2c::I2cBB,
-        defmt::info,
-        fusb302b::Fusb302b,
-        stm32f0xx_hal::{
-            gpio::{
-                gpioa,
-                gpiof::{self, PF1},
-                Input, PullUp,
-            },
-            pac::EXTI,
-            prelude::*,
-            timers::Timer,
-        },
-        systick_monotonic::Systick,
-        usb_pd::sink::Sink,
-    };
+    use rtic_monotonics::Monotonic;
+
+    use super::*;
 
     #[shared]
     struct Shared {
@@ -65,11 +50,8 @@ mod app {
         exti: EXTI,
     }
 
-    #[monotonic(binds = SysTick, default = true)]
-    type MonoTimer = Systick<1000>;
-
     #[init]
-    fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
+    fn init(cx: init::Context) -> (Shared, Local) {
         let rcc = cx.device.RCC;
         let syscfg = cx.device.SYSCFG;
         let exti = cx.device.EXTI;
@@ -80,7 +62,8 @@ mod app {
         let mut flash = cx.device.FLASH;
         let mut rcc = rcc.configure().sysclk(32u32.mhz()).freeze(&mut flash);
 
-        let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().0);
+        let mono = rtic_monotonics::create_systick_token!();
+        Systick::start(cx.core.SYST, 36_000_000, mono);
 
         let gpiof::Parts { pf1, .. } = cx.device.GPIOF.split(&mut rcc);
 
@@ -127,11 +110,7 @@ mod app {
 
         info!("init done");
 
-        (
-            Shared { led },
-            Local { pd, button, exti },
-            init::Monotonics(mono),
-        )
+        (Shared { led }, Local { pd, button, exti })
     }
 
     #[idle(local = [pd])]
@@ -140,7 +119,7 @@ mod app {
             cx.local
                 .pd
                 // poll PD driver
-                .poll(monotonics::now())
+                .poll(Systick::now())
                 // handle event if one was returned from sink
                 .and_then(handle_event)
                 // make request if one was returned from handler
