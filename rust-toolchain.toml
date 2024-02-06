@@ -1,0 +1,5 @@
+[toolchain]
+channel = "nightly"
+profile = "default"
+components = []
+targets = ["thumbv6m-none-eabi"]

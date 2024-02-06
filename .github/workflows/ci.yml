@@ -13,30 +13,16 @@ jobs:
       - name: Checkout sources
         uses: actions/checkout@v3
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: thumbv6m-none-eabi
-
       - name: Run cargo format in check mode
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: --all -- --check
+        run: cargo fmt --all -- --check
 
       - name: Cache artifacts
         uses: Swatinem/rust-cache@v2
 
       - name: Run cargo build
-        uses: actions-rs/cargo@v1
+        run: cargo build --release
         env:
           RUSTFLAGS: -D warnings
-        with:
-          command: build
-          args: --release
 
   docs:
     name: Docs
@@ -57,21 +43,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-          target: thumbv6m-none-eabi
-
       - name: Cache artifacts
         uses: Swatinem/rust-cache@v2
 
       - name: Run cargo doc
-        uses: actions-rs/cargo@v1
-        with:
-          command: doc
+        run: cargo doc
 
       # https://github.com/actions/upload-pages-artifact#file-permissions
       - run: chmod -c -R +rX ./target/thumbv6m-none-eabi/doc
