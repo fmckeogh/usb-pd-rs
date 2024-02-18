@@ -1,19 +1,23 @@
 #![no_std]
 #![no_main]
+#![feature(type_alias_impl_trait)]
 
 use {
     crate::{i2c::I2cBB, rgb::Rgb},
     cortex_m_rt::entry,
-    defmt::*,
+    defmt::info,
     defmt_rtt as _,
-    embassy_executor::{InterruptExecutor, Spawner},
+    embassy_executor::Spawner,
     embassy_stm32::{
-        gpio::{Level, Output, OutputOpenDrain, Pull, Speed},
-        interrupt, Config,
+        exti::ExtiInput,
+        gpio::{Input, Level, Output, OutputOpenDrain, Pin, Pull, Speed},
+        interrupt,
+        peripherals::PF1,
+        Config,
     },
     embassy_time::Instant,
     fusb302b::Fusb302b,
-    panic_probe as _,
+    panic_halt as _,
     usb_pd::{
         pdo::PowerDataObject,
         sink::{Event, Request, Sink},
@@ -23,40 +27,32 @@ use {
 mod i2c;
 mod rgb;
 
-static EXECUTOR: InterruptExecutor = InterruptExecutor::new();
-
-#[interrupt]
-unsafe fn ADC1() {
-    EXECUTOR.on_interrupt()
-}
-
-#[entry]
-fn main() -> ! {
-    let spawner = EXECUTOR.start(interrupt::ADC1);
-    spawner.spawn(main()).ok();
-    loop {}
-}
-
 // main is itself an async function.
-#[embassy_executor::task]
-async fn main() {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Config::default());
 
-    // let mut led = Rgb::new(
-    //     Output::new(p.PA5, Level::High, Speed::Low),
-    //     Output::new(p.PA6, Level::High, Speed::Low),
-    //     Output::new(p.PA7, Level::High, Speed::Low),
-    // );
+    let mut led = Rgb::new(
+        Output::new(p.PA5, Level::High, Speed::Low),
+        Output::new(p.PA6, Level::High, Speed::Low),
+        Output::new(p.PA7, Level::High, Speed::Low),
+    );
+    led.set(rgb::Color::Magenta);
 
     let sda = OutputOpenDrain::new(p.PA9, Level::Low, Speed::VeryHigh, Pull::None);
     let scl = Output::new(p.PA10, Level::Low, Speed::VeryHigh);
 
-    let i2c = I2cBB::new(scl, sda, 400_000);
+    let i2c = I2cBB::new(scl, sda, 100_000);
+
+    defmt::error!("started!");
+
+    // Configure the button pin and obtain handler.
+    // let button = ExtiInput::new(Input::new(p.PF1, Pull::Up), p.EXTI1);
+    // spawner.spawn(button_handler(button)).ok();
 
     let mut pd = Sink::new(Fusb302b::new(i2c));
 
     pd.init().await;
-    info!("init done");
 
     loop {
         pd.poll(Instant::now())
@@ -67,168 +63,15 @@ async fn main() {
     }
 }
 
-// #![no_main]
-// #![no_std]
-
-// use {
-//     crate::rgb::Rgb,
-//     bitbang_hal::i2c::I2cBB,
-//     defmt::{debug, info},
-//     defmt_rtt as _,
-//     fusb302b::Fusb302b,
-//     panic_probe as _,
-//     rtic::app,
-//     stm32f0xx_hal::{
-//         gpio::{
-//             gpioa::{PA10, PA5, PA6, PA7, PA9},
-//             OpenDrain, Output, PushPull,
-//         },
-//         pac::TIM3,
-//         timers::Timer,
-//     },
-//     usb_pd::{
-//         pdo::PowerDataObject,
-//         sink::{Event, Request, Sink},
-//     },
-// };
-
-// mod rgb;
-
-// type Led = Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>,
-// PA7<Output<PushPull>>>; type PdSink =
-// Sink<Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>,
-// Timer<TIM3>>>>;
-
-// #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
-// mod app {
-//     use {
-//         crate::{
-//             handle_event,
-//             rgb::{Color, Rgb},
-//             Led, PdSink,
-//         },
-//         bitbang_hal::i2c::I2cBB,
-//         defmt::info,
-//         fusb302b::Fusb302b,
-//         stm32f0xx_hal::{
-//             gpio::{
-//                 gpioa,
-//                 gpiof::{self, PF1},
-//                 Input, PullUp,
-//             },
-//             pac::EXTI,
-//             prelude::*,
-//             timers::Timer,
-//         },
-//         systick_monotonic::Systick,
-//         usb_pd::sink::Sink,
-//     };
-
-//     #[shared]
-//     struct Shared {
-//         led: Led,
-//     }
-
-//     #[local]
-//     struct Local {
-//         pd: PdSink,
-//         button: PF1<Input<PullUp>>,
-//         exti: EXTI,
-//     }
-
-//     #[monotonic(binds = SysTick, default = true)]
-//     type MonoTimer = Systick<1000>;
-
-//     #[init]
-//     fn init(cx: init::Context) -> (Shared, Local, init::Monotonics) {
-//         let rcc = cx.device.RCC;
-//         let syscfg = cx.device.SYSCFG;
-//         let exti = cx.device.EXTI;
-
-//         // Enable clock for SYSCFG
-//         rcc.apb2enr.modify(|_, w| w.syscfgen().set_bit());
-
-//         let mut flash = cx.device.FLASH;
-//         let mut rcc = rcc.configure().sysclk(32u32.mhz()).freeze(&mut flash);
-
-//         let mono = Systick::new(cx.core.SYST, rcc.clocks.sysclk().0);
-
-//         let gpiof::Parts { pf1, .. } = cx.device.GPIOF.split(&mut rcc);
-
-//         let button = cortex_m::interrupt::free(move |cs|
-// pf1.into_pull_up_input(cs));
-
-//         // Enable external interrupt for PF1
-//         syscfg.exticr1.modify(|_, w| w.exti1().pf1());
-
-//         // Set interrupt request mask for line 1
-//         exti.imr.modify(|_, w| w.mr1().set_bit());
-
-//         // Set interrupt rising trigger for line 1
-//         exti.ftsr.modify(|_, w| w.tr1().set_bit());
-
-//         let gpioa::Parts {
-//             pa5,
-//             pa6,
-//             pa7,
-//             pa9,
-//             pa10,
-//             ..
-//         } = cx.device.GPIOA.split(&mut rcc);
-
-//         let (pa5, pa6, pa7, sda, scl) = cortex_m::interrupt::free(move |cs| {
-//             (
-//                 pa5.into_push_pull_output(cs),
-//                 pa6.into_push_pull_output(cs),
-//                 pa7.into_push_pull_output(cs),
-//                 pa9.into_open_drain_output(cs),
-//                 pa10.into_push_pull_output(cs),
-//             )
-//         });
-
-//         let mut led = Rgb::new(pa5, pa6, pa7);
-//         led.set(Color::White);
-
-//         let mut pd = {
-//             let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
-//             let i2c = I2cBB::new(scl, sda, clk);
-//             Sink::new(Fusb302b::new(i2c))
-//         };
-
-//         pd.init();
-
-//         info!("init done");
-
-//         (
-//             Shared { led },
-//             Local { pd, button, exti },
-//             init::Monotonics(mono),
-//         )
-//     }
-
-//     #[idle(local = [pd])]
-//     fn idle(cx: idle::Context) -> ! {
-//         loop {
-//             cx.local
-//                 .pd
-//                 // poll PD driver
-//                 .poll(monotonics::now())
-//                 // handle event if one was returned from sink
-//                 .and_then(handle_event)
-//                 // make request if one was returned from handler
-//                 .map(|req| cx.local.pd.request(req));
-//         }
-//     }
-
-//     #[task(binds = EXTI0_1, local = [button, exti], shared = [led])]
-//     fn button(mut cx: button::Context) {
-//         info!("button rising edge");
-
-//         cx.shared
-//             .led
-//             .lock(|led| led.set(Color::from((led.get() as u8 + 1) % 8)));
-
-//         cx.local.exti.pr.write(|w| w.pr1().clear());
+// #[embassy_executor::task]
+// async fn button_handler(mut button: ExtiInput<'static, PF1>) {
+//     loop {
+//         button.wait_for_falling_edge().await;
+//         info!("Pressed!");
+//         // led.set(rgb::Color::Cyan);
+//         button.wait_for_rising_edge().await;
+//         info!("Released!");
+//         //led.set(rgb::Color::Magenta);
 //     }
 // }
 
@@ -243,12 +86,12 @@ fn handle_event(event: Event) -> Option<Request> {
                 .enumerate()
                 .filter_map(|(i, cap)| {
                     if let PowerDataObject::FixedSupply(supply) = cap {
-                        debug!(
-                            "supply @ {}: {}mV {}mA",
-                            i,
-                            supply.voltage() * 50,
-                            supply.max_current() * 10
-                        );
+                        // debug!(
+                        //     "supply @ {}: {}mV {}mA",
+                        //     i,
+                        //     supply.voltage() * 50,
+                        //     supply.max_current() * 10
+                        // );
                         Some((i, supply))
                     } else {
                         None
@@ -257,7 +100,7 @@ fn handle_event(event: Event) -> Option<Request> {
                 .max_by(|(_, x), (_, y)| x.voltage().cmp(&y.voltage()))
                 .unwrap();
 
-            info!("requesting supply {:?}@{}", supply, index);
+            //  info!("requesting supply {:?}@{}", supply, index);
 
             return Some(Request::RequestPower {
                 index,
