@@ -1,12 +1,12 @@
 use {
     crate::{
         header::{DataMessageType, Header, SpecificationRevision},
-        messages::{Message,
+        messages::{
             pdo::{FixedVariableRequestDataObject, PowerDataObject},
-            vdo::{VDMHeader, VDMIdentityHeader, CertStatVDO, ProductVDO, UFPTypeVDO, self}
+            vdo::{self, CertStatVDO, ProductVDO, UFPTypeVDO, VDMHeader, VDMIdentityHeader},
+            Message,
         },
-        PowerRole,
-        DataRole
+        DataRole, PowerRole,
     },
     defmt::{warn, Format},
     heapless::Vec,
@@ -14,6 +14,7 @@ use {
 
 use embassy_time::Instant;
 
+use crate::messages::pdo::PPSRequestDataObject;
 
 pub trait Driver {
     fn init(&mut self);
@@ -52,13 +53,21 @@ pub enum Request {
         index: usize,
         current: u16,
     },
+    RequestPPS {
+        /// Index of the desired PowerDataObject
+        index: usize,
+        /// Requested voltage (in mV)
+        voltage: u16,
+        /// Requested maximum current (in mA)
+        current: u16,
+    },
     REQDiscoverIdentity,
     ACKDiscoverIdentity {
         identity: VDMIdentityHeader,
         cert_stat: CertStatVDO,
         product: ProductVDO,
         product_type_ufp: UFPTypeVDO,
-// Does not exist yet...        product_type_dfp: Option<DFP>,
+        // Does not exist yet...        product_type_dfp: Option<DFP>,
     },
     REQDiscoverSVIDS,
 }
@@ -145,6 +154,39 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     pub fn request(&mut self, request: Request) {
         match request {
             Request::RequestPower { index, current } => self.request_power(current, index),
+
+            Request::RequestPPS {
+                index,
+                voltage,
+                current,
+            } => {
+                // Payload is 4 bytes
+                let mut payload = [0; 4];
+                // Add one to index to account for array offsets starting at 0 and obj_pos starting at 1...
+                let obj_pos = index + 1;
+                assert!(obj_pos > 0b0000 && obj_pos <= 0b1110);
+
+                // Create PPS request data object
+                let pps = PPSRequestDataObject(0)
+                    .with_object_position(obj_pos as u8)
+                    .with_operating_current(current / 50) // Convert current from millis to 50ma units
+                    .with_output_voltage(voltage / 20) // Convert voltage from millis to 20mv units
+                    .with_capability_mismatch(false)
+                    .with_epr_mode_capable(false)
+                    .with_usb_communications_capable(true);
+                pps.to_bytes(&mut payload[0..4]);
+
+                // Create header
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::Request as u8)
+                    .with_num_objects(1)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev))
+                    .with_port_power_role(PowerRole::Sink);
+
+                // Send request message
+                self.driver.send_message(header, &payload)
+            }
+
             Request::ACKDiscoverIdentity {
                 identity,
                 cert_stat,
@@ -155,7 +197,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 defmt::debug!("ACKDiscoverIdentity");
                 // The size of this array will actually change depending on data...
                 // TODO: Fix this!
-                let mut payload = [0; 5*4];
+                let mut payload = [0; 5 * 4];
                 let header = Header(0)
                     .with_message_type_raw(DataMessageType::VendorDefined as u8)
                     .with_num_objects(5) // 5 VDOs, vdm header, id header, cert, product, UFP product type
@@ -185,7 +227,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 defmt::debug!("Sending VDM {:x}", payload);
                 self.driver.send_message(header, &payload);
                 defmt::debug!("Sent VDM");
-            },
+            }
             Request::REQDiscoverSVIDS => {
                 defmt::debug!("REQDiscoverSVIDS");
                 let mut payload = [0; 4];
@@ -210,7 +252,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 defmt::debug!("Sending VDM {:x}", payload);
                 self.driver.send_message(header, &payload);
                 defmt::debug!("Sent VDM");
-            },
+            }
             Request::REQDiscoverIdentity => {
                 defmt::debug!("REQDiscoverIdentity");
                 let mut payload = [0; 4];
@@ -235,7 +277,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 defmt::debug!("Sending VDM {:x}", payload);
                 self.driver.send_message(header, &payload);
                 defmt::debug!("Sent VDM");
-            },
+            }
         }
     }
 

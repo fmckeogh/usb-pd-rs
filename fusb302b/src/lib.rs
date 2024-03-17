@@ -118,6 +118,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
             .set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
         self.registers.set_control0(Control0::default().with_int_mask(false).with_host_cur(01));
+        self.registers.set_control3(Control3::default().with_send_hard_reset(true).with_auto_hardreset(true).with_auto_softreset(true).with_auto_retry(true).with_n_retries(3));
         self.state = State::Measuring { cc_pin: CcPin::CC1 };
         while self.events.dequeue().is_some() {}
 
@@ -363,7 +364,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
         // Enable automatic retries
         self.registers
-            .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3));
+            .set_control3(Control3::default().with_send_hard_reset(true).with_auto_hardreset(true).with_auto_softreset(true).with_auto_retry(true).with_n_retries(3));
 
         // Enable interrupts for CC activity and CRC_CHK
         self.registers.set_mask1(
