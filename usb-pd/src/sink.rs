@@ -2,7 +2,7 @@ use {
     crate::{
         header::{DataMessageType, Header, SpecificationRevision},
         messages::{
-            pdo::{FixedVariableRequestDataObject, PowerDataObject},
+            pdo::{FixedVariableRequestDataObject, PPSRequestDataObject, PowerDataObject},
             vdo::{
                 CertStatVDO, ProductVDO, UFPTypeVDO, VDMCommand, VDMCommandType, VDMHeader,
                 VDMHeaderStructured, VDMIdentityHeader, VDMType, VDMVersionMajor, VDMVersionMinor,
@@ -54,6 +54,14 @@ pub enum Request {
     RequestPower {
         /// Index of the desired PowerDataObject
         index: usize,
+        current: u16,
+    },
+    RequestPPS {
+        /// Index of the desired PowerDataObject
+        index: usize,
+        /// Requested voltage (in mV)
+        voltage: u16,
+        /// Requested maximum current (in mA)
         current: u16,
     },
     REQDiscoverIdentity,
@@ -142,6 +150,40 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     pub async fn request(&mut self, request: Request) {
         match request {
             Request::RequestPower { index, current } => self.request_power(current, index).await,
+
+            Request::RequestPPS {
+                index,
+                voltage,
+                current,
+            } => {
+                // Payload is 4 bytes
+                let mut payload = [0; 4];
+                // Add one to index to account for array offsets starting at 0 and obj_pos
+                // starting at 1...
+                let obj_pos = index + 1;
+                assert!(obj_pos > 0b0000 && obj_pos <= 0b1110);
+
+                // Create PPS request data object
+                let pps = PPSRequestDataObject(0)
+                    .with_object_position(obj_pos as u8)
+                    .with_operating_current(current / 50) // Convert current from millis to 50ma units
+                    .with_output_voltage(voltage / 20) // Convert voltage from millis to 20mv units
+                    .with_capability_mismatch(false)
+                    .with_epr_mode_capable(false)
+                    .with_usb_communications_capable(true);
+                pps.to_bytes(&mut payload[0..4]);
+
+                // Create header
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::Request as u8)
+                    .with_num_objects(1)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev))
+                    .with_port_power_role(PowerRole::Sink);
+
+                // Send request message
+                self.driver.send_message(header, &payload).await
+            }
+
             Request::ACKDiscoverIdentity {
                 identity,
                 cert_stat,
