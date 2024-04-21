@@ -7,11 +7,6 @@ pub mod sink;
 pub mod source;
 pub mod token;
 
-mod timers;
-
-pub type Instant = fugit::Instant<u64, 1, 1000>;
-pub type Duration = fugit::Duration<u64, 1, 1000>;
-
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CcPin {
     CC1,

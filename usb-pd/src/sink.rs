@@ -9,21 +9,22 @@ use {
         DataRole, PowerRole,
     },
     defmt::{warn, Format},
+    embassy_time::Instant,
     heapless::Vec,
 };
-
-use embassy_time::Instant;
 
 use crate::messages::pdo::PPSRequestDataObject;
 
 pub trait Driver {
-    fn init(&mut self);
+    async fn init(&mut self);
 
-    fn poll(&mut self, now: Instant);
+    async fn poll(&mut self, now: Instant);
 
-    fn get_event(&mut self) -> Option<DriverEvent>;
+    fn get_pending_message(&mut self) -> Option<Message>;
 
-    fn send_message(&mut self, header: Header, payload: &[u8]);
+    fn did_change_protocol(&mut self) -> bool;
+
+    async fn send_message(&mut self, header: Header, payload: &[u8]);
 
     fn state(&mut self) -> DriverState;
 }
@@ -85,12 +86,6 @@ pub enum DriverState {
     UsbRetryWait,
 }
 
-/// Event queue by FUSB302 instance for clients (such as `pd_sink`)
-pub enum DriverEvent {
-    StateChanged,
-    MessageReceived(Message),
-}
-
 pub struct Sink<DRIVER> {
     driver: DRIVER,
 
@@ -125,35 +120,34 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         }
     }
 
-    pub fn init(&mut self) {
-        self.driver.init();
+    pub async fn init(&mut self) {
+        self.driver.init().await;
         self.update_protocol();
     }
 
     /// Call continously until `None` is returned.
-    pub fn poll(&mut self, now: Instant) -> Option<Event> {
+    pub async fn poll(&mut self, now: Instant) -> Option<Event> {
         // poll inner driver
-        self.driver.poll(now);
+        self.driver.poll(now).await;
 
-        let Some(evt) = self.driver.get_event() else {
-            return None;
+        if let Some(message) = self.driver.get_pending_message() {
+            return self.handle_msg(message);
         };
 
-        match evt {
-            DriverEvent::StateChanged => {
-                if self.update_protocol() {
-                    Some(Event::ProtocolChanged)
-                } else {
-                    None
-                }
+        if self.driver.did_change_protocol() {
+            if self.update_protocol() {
+                Some(Event::ProtocolChanged)
+            } else {
+                None
             }
-            DriverEvent::MessageReceived(message) => self.handle_msg(message),
+        } else {
+            None
         }
     }
 
-    pub fn request(&mut self, request: Request) {
+    pub async fn request(&mut self, request: Request) {
         match request {
-            Request::RequestPower { index, current } => self.request_power(current, index),
+            Request::RequestPower { index, current } => self.request_power(current, index).await,
 
             Request::RequestPPS {
                 index,
@@ -184,7 +178,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                     .with_port_power_role(PowerRole::Sink);
 
                 // Send request message
-                self.driver.send_message(header, &payload)
+                self.driver.send_message(header, &payload).await
             }
 
             Request::ACKDiscoverIdentity {
@@ -225,7 +219,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 //     product_type_dfp.to_bytes(&mut payload[24..32]);
                 // }
                 defmt::debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload);
+                self.driver.send_message(header, &payload).await;
                 defmt::debug!("Sent VDM");
             }
             Request::REQDiscoverSVIDS => {
@@ -250,7 +244,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 defmt::debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload);
+                self.driver.send_message(header, &payload).await;
                 defmt::debug!("Sent VDM");
             }
             Request::REQDiscoverIdentity => {
@@ -275,7 +269,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 defmt::debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload);
+                self.driver.send_message(header, &payload).await;
                 defmt::debug!("Sent VDM");
             }
         }
@@ -338,7 +332,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         }
     }
 
-    fn request_power(&mut self, max_current: u16, index: usize) {
+    async fn request_power(&mut self, max_current: u16, index: usize) {
         // Create 'request' message
         let mut payload = [0; 4];
 
@@ -351,7 +345,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             .with_port_power_role(PowerRole::Sink);
 
         // Send message
-        self.driver.send_message(header, &payload);
+        self.driver.send_message(header, &payload).await;
     }
 
     fn set_request_payload_fixed(&mut self, payload: &mut [u8], obj_pos: u8, mut current: u16) {

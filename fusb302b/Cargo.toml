@@ -11,13 +11,13 @@ keywords = ["nostd", "usb-pd", "driver", "embedded", "fusb302b"]
 
 [dependencies]
 byteorder = { version = "1.5.0", default-features = false }
-embedded-hal = "0.2.7"
-heapless = { version = "0.7.16", features = ["defmt"] }
-fugit = "0.3.7"
+embedded-hal-async = "1.0.0"
+heapless = { version = "0.8.0", features = ["defmt-03"] }
 defmt = "0.3.5"
 paste = "1.0.14"
-proc-bitfield = "0.3.0"
+proc-bitfield = "0.3.1"
+embassy-time = "0.3.0"
 
 usb-pd = { path = "../usb-pd" }
 
-embassy-time = { version = "0.2", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime"]}
+#embassy-time = { version = "0.2", git = "https://github.com/embassy-rs/embassy.git", features = ["defmt", "defmt-timestamp-uptime"]}
