@@ -156,7 +156,8 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             } => {
                 // Payload is 4 bytes
                 let mut payload = [0; 4];
-                // Add one to index to account for array offsets starting at 0 and obj_pos starting at 1...
+                // Add one to index to account for array offsets starting at 0 and obj_pos
+                // starting at 1...
                 let obj_pos = index + 1;
                 assert!(obj_pos > 0b0000 && obj_pos <= 0b1110);
 
