@@ -1,8 +1,7 @@
 use {
     embassy_time::{Duration, Ticker},
     embedded_hal::digital::{InputPin, OutputPin},
-    embedded_hal_async::i2c::Operation,
-    embedded_hal_async::i2c::{ErrorType, I2c, NoAcknowledgeSource},
+    embedded_hal_async::i2c::{ErrorType, I2c, NoAcknowledgeSource, Operation},
 };
 
 /// Bit banging I2C device
@@ -179,12 +178,12 @@ impl<SCL: OutputPin, SDA: OutputPin + InputPin> I2c for I2cBB<SCL, SDA> {
         operations: &mut [Operation<'_>],
     ) -> Result<(), Self::Error> {
         // ST = start condition
-        // SAD+R/W = slave address followed by bit 1 to indicate reading or 0 to indicate writing
-        // SR = repeated start condition
+        // SAD+R/W = slave address followed by bit 1 to indicate reading or 0 to
+        // indicate writing SR = repeated start condition
         // SP = stop condition
 
-        // Before executing the first operation an ST is sent automatically. This is followed by SAD+R/W as appropriate.
-        // ST
+        // Before executing the first operation an ST is sent automatically. This is
+        // followed by SAD+R/W as appropriate. ST
         self.i2c_start().await?;
 
         let mut last_was_read = None;
@@ -193,7 +192,9 @@ impl<SCL: OutputPin, SDA: OutputPin + InputPin> I2c for I2cBB<SCL, SDA> {
         for (index, op) in operations.iter_mut().enumerate() {
             match op {
                 Operation::Read(buf) => {
-                    // Data from adjacent operations of the same type are sent after each other without an SP or SR. Between adjacent operations of a different type an SR and SAD+R/W is sent.
+                    // Data from adjacent operations of the same type are sent after each other
+                    // without an SP or SR. Between adjacent operations of a different type an SR
+                    // and SAD+R/W is sent.
                     if last_was_read != Some(true) {
                         // SR
                         self.i2c_start().await?;
@@ -203,7 +204,8 @@ impl<SCL: OutputPin, SDA: OutputPin + InputPin> I2c for I2cBB<SCL, SDA> {
                         self.check_ack().await?;
                     }
 
-                    // If the last operation is a Read the master does not send an acknowledge for the last byte.
+                    // If the last operation is a Read the master does not send an acknowledge for
+                    // the last byte.
                     self.read_from_slave(buf, index == last_op_index).await?;
 
                     last_was_read = Some(true);

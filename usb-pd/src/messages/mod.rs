@@ -1,17 +1,17 @@
-pub mod vdo;
 pub mod pdo;
+pub mod vdo;
 
 use {
     crate::header::{ControlMessageType, DataMessageType, Header, MessageType},
     byteorder::{ByteOrder, LittleEndian},
     defmt::{trace, warn, Format},
     heapless::Vec,
-    vdo::{VDMHeader, VDMHeaderRaw, VDMHeaderStructured, VDMHeaderUnstructured, VDMType},
     pdo::{
-        AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery,
-        EPRAdjustableVoltageSupply, FixedSupply, PowerDataObject, PowerDataObjectRaw,
-        SPRProgrammablePowerSupply, VariableSupply,
+        AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery, EPRAdjustableVoltageSupply,
+        FixedSupply, PowerDataObject, PowerDataObjectRaw, SPRProgrammablePowerSupply,
+        VariableSupply,
     },
+    vdo::{VDMHeader, VDMHeaderRaw, VDMHeaderStructured, VDMHeaderUnstructured, VDMType},
 };
 
 #[derive(Clone, Format)]
@@ -72,7 +72,11 @@ impl Message {
                     }
                 };
 
-                let data = payload[4..].chunks_exact(4).take(7).map(|buf| LittleEndian::read_u32(buf)).collect::<Vec<u32, 7>>();
+                let data = payload[4..]
+                    .chunks_exact(4)
+                    .take(7)
+                    .map(|buf| LittleEndian::read_u32(buf))
+                    .collect::<Vec<u32, 7>>();
 
                 trace!("VDM RX: {:?} {:?}", header, data);
                 // trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(),

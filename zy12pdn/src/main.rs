@@ -5,7 +5,7 @@
 use {
     crate::{i2c::I2cBB, rgb::Rgb},
     cortex_m_rt::entry,
-    defmt::{info,error},
+    defmt::{error, info},
     defmt_rtt as _,
     embassy_executor::Spawner,
     embassy_stm32::{
