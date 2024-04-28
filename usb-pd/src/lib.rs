@@ -27,7 +27,7 @@ impl core::ops::Not for CcPin {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum PowerRole {
     Source,
     Sink,
@@ -51,7 +51,7 @@ impl From<PowerRole> for bool {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum DataRole {
     Ufp,
     Dfp,
