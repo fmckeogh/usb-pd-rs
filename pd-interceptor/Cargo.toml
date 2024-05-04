@@ -1,0 +1,21 @@
+[package]
+name = "pd-interceptor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.4"
+embassy-stm32 = { version =  "0.1.0", features = ["memory-x", "stm32f103c8", "time-driver-any", "exti", "unstable-pac"] }
+embassy-executor = { version = "0.5.0", features = ["arch-cortex-m", "executor-thread", "executor-interrupt", "defmt", "integrated-timers"]  }
+embassy-time = "0.3.0"
+embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
+
+defmt = "0.3.6"
+defmt-rtt = "0.4.0"
+
+fusb302b = { path = "../fusb302b" }
+usb-pd = { path = "../usb-pd" }
+panic-probe = { version = "0.3.1", features = ["print-defmt"] }
+aht20-async = "1.0.0"

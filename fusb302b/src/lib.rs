@@ -9,13 +9,14 @@ use {
         timeout::Timeout,
     },
     defmt::{debug, trace, warn},
-    embedded_hal::blocking::i2c::{Write, WriteRead},
+    embassy_time::{Duration, Instant},
+    embedded_hal_async::i2c::I2c,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
         message::Message,
         sink::{Driver as SinkDriver, DriverState},
         token::Token,
-        CcPin, Duration, Instant,
+        CcPin,
     },
 };
 
@@ -66,86 +67,94 @@ impl From<&State> for DriverState {
     }
 }
 
-impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
-    fn init(&mut self) {
+impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
+    async fn init(&mut self) {
         // full reset
         self.registers
-            .set_reset(Reset::default().with_pd_reset(true).with_sw_reset(true));
+            .set_reset(Reset::default().with_pd_reset(true).with_sw_reset(true))
+            .await;
 
         for _ in 0..1_000_000 {
             core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         }
 
         // power up everyting except oscillator
-        self.registers.set_power(
-            Power::default()
-                .with_bandgap_wake(true)
-                .with_measure_block(true)
-                .with_receiver(true),
-        );
+        self.registers
+            .set_power(
+                Power::default()
+                    .with_bandgap_wake(true)
+                    .with_measure_block(true)
+                    .with_receiver(true),
+            )
+            .await;
 
         // Disable all CC monitoring
-        self.registers.set_switches0(Switches0::default());
+        self.registers.set_switches0(Switches0::default()).await;
 
         // Mask all interrupts
-        self.registers.set_mask1(
-            Mask1::default()
-                .with_m_activity(true)
-                .with_m_alert(true)
-                .with_m_bc_lvl(true)
-                .with_m_collision(true)
-                .with_m_comp_chng(true)
-                .with_m_crc_chk(true)
-                .with_m_vbusok(true)
-                .with_m_wake(true),
-        );
+        self.registers
+            .set_mask1(
+                Mask1::default()
+                    .with_m_activity(true)
+                    .with_m_alert(true)
+                    .with_m_bc_lvl(true)
+                    .with_m_collision(true)
+                    .with_m_comp_chng(true)
+                    .with_m_crc_chk(true)
+                    .with_m_vbusok(true)
+                    .with_m_wake(true),
+            )
+            .await;
 
         // Mask all interrupts
-        self.registers.set_mask_a(
-            MaskA::default()
-                .with_m_hardrst(true)
-                .with_m_hardsent(true)
-                .with_m_ocp_temp(true)
-                .with_m_retryfail(true)
-                .with_m_softfail(true)
-                .with_m_softrst(true)
-                .with_m_togdone(true)
-                .with_m_txsent(true),
-        );
+        self.registers
+            .set_mask_a(
+                MaskA::default()
+                    .with_m_hardrst(true)
+                    .with_m_hardsent(true)
+                    .with_m_ocp_temp(true)
+                    .with_m_retryfail(true)
+                    .with_m_softfail(true)
+                    .with_m_softrst(true)
+                    .with_m_togdone(true)
+                    .with_m_txsent(true),
+            )
+            .await;
 
         // Mask all interrupts (incl. good CRC sent)
         self.registers
-            .set_mask_b(MaskB::default().with_m_gcrcsent(true));
+            .set_mask_b(MaskB::default().with_m_gcrcsent(true))
+            .await;
 
         self.state = State::Measuring { cc_pin: CcPin::CC1 };
         self.message = None;
         self.did_change_protocol = false;
 
-        self.start_sink();
+        self.start_sink().await;
     }
 
-    fn poll(&mut self, now: Instant) {
+    async fn poll(&mut self, now: Instant) {
         self.timeout.update(now);
 
-        self.check_for_interrupts();
+        self.check_for_interrupts().await;
 
         match self.state {
             State::Measuring { .. } => {
                 if self.timeout.is_expired() {
-                    self.check_measurement();
+                    self.check_measurement().await;
                 }
             }
             State::Ready => {
                 if self.timeout.is_expired() {
                     debug!("ready: timeout expired, establishing retry wait");
-                    self.establish_retry_wait();
+                    self.establish_retry_wait().await;
                 }
             }
             State::Connected { .. } => (),
             State::RetryWait => {
                 if self.timeout.is_expired() {
                     debug!("retry wait: timeout expired, resetting");
-                    self.establish_usb_20();
+                    self.establish_usb_20().await;
                 }
             }
         }
@@ -161,19 +170,21 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         res
     }
 
-    fn send_message(&mut self, mut header: Header, payload: &[u8]) {
+    async fn send_message(&mut self, mut header: Header, payload: &[u8]) {
         let State::Connected { message_id } = &mut self.state else {
             panic!();
         };
 
         // Enable internal oscillator
-        self.registers.set_power(
-            Power::default()
-                .with_bandgap_wake(true)
-                .with_internal_oscillator(true)
-                .with_measure_block(true)
-                .with_receiver(true),
-        );
+        self.registers
+            .set_power(
+                Power::default()
+                    .with_bandgap_wake(true)
+                    .with_internal_oscillator(true)
+                    .with_measure_block(true)
+                    .with_receiver(true),
+            )
+            .await;
 
         assert_eq!(header.num_objects() * 4, payload.len());
 
@@ -205,7 +216,9 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
             Token::TxOn as u8,
         ]);
 
-        self.registers.write_raw(&mut buf[..12 + payload.len()]);
+        self.registers
+            .write_raw(&mut buf[..12 + payload.len()])
+            .await;
 
         message_id.inc();
     }
@@ -215,7 +228,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
     }
 }
 
-impl<I2C: Write + WriteRead> Fusb302b<I2C> {
+impl<I2C: I2c> Fusb302b<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self {
             registers: Registers::new(i2c),
@@ -226,7 +239,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         }
     }
 
-    fn start_sink(&mut self) {
+    async fn start_sink(&mut self) {
         // As the interrupt line is also used as SWDIO, the FUSB302B interrupt is
         // not activated until activity on CC1 or CC2 has been detected.
         // Thus, CC1 and CC2 have to be polled manually even though the FUSB302B
@@ -234,12 +247,13 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
         // BMC threshold: 1.35V with a threshold of 85mV
         self.registers
-            .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(0b01));
+            .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(0b01))
+            .await;
 
-        self.start_measurement();
+        self.start_measurement().await;
     }
 
-    fn start_measurement(&mut self) {
+    async fn start_measurement(&mut self) {
         let State::Measuring { cc_pin } = self.state else {
             panic!();
         };
@@ -252,36 +266,36 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         }
 
         // test CC
-        self.registers.set_switches0(switches0);
-        self.timeout.start(Duration::millis(10));
+        self.registers.set_switches0(switches0).await;
+        self.timeout.start(Duration::from_millis(10));
     }
 
-    fn check_measurement(&mut self) {
+    async fn check_measurement(&mut self) {
         let State::Measuring { ref mut cc_pin } = self.state else {
             panic!();
         };
 
         let _ = self.registers.status0();
-        if self.registers.status0().bc_lvl() == 0 {
+        if self.registers.status0().await.bc_lvl() == 0 {
             // No CC activity
             *cc_pin = !*cc_pin;
-            self.start_measurement();
+            self.start_measurement().await;
             return;
         }
 
-        self.establish_usb_pd_wait();
+        self.establish_usb_pd_wait().await;
     }
 
-    fn check_for_interrupts(&mut self) {
+    async fn check_for_interrupts(&mut self) {
         let mut may_have_message = false;
 
-        let interrupt = self.registers.interrupt();
-        let interrupta = self.registers.interrupta();
-        let interruptb = self.registers.interruptb();
+        let interrupt = self.registers.interrupt().await;
+        let interrupta = self.registers.interrupta().await;
+        let interruptb = self.registers.interruptb().await;
 
         if interrupta.i_hardrst() {
             debug!("Hard reset");
-            self.establish_retry_wait();
+            self.establish_retry_wait().await;
             return;
         }
         if interrupta.i_retryfail() {
@@ -290,9 +304,9 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         if interrupta.i_txsent() {
             debug!("TX ack");
             // turn off internal oscillator if TX FIFO is empty
-            if self.registers.status1().tx_empty() {
-                let power = self.registers.power().with_internal_oscillator(false);
-                self.registers.set_power(power);
+            if self.registers.status1().await.tx_empty() {
+                let power = self.registers.power().await.with_internal_oscillator(false);
+                self.registers.set_power(power).await;
             }
         }
         if interrupt.i_activity() {
@@ -307,17 +321,17 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             may_have_message = true;
         }
         if may_have_message {
-            self.check_for_msg();
+            self.check_for_msg().await;
         }
     }
 
-    fn check_for_msg(&mut self) {
-        while !self.registers.status1().rx_empty() {
+    async fn check_for_msg(&mut self) {
+        while !self.registers.status1().await.rx_empty() {
             let mut header = 0;
             let mut payload = [0; 64];
-            self.read_message(&mut header, &mut payload[..]);
+            self.read_message(&mut header, &mut payload[..]).await;
 
-            if !self.registers.status0().crc_chk() {
+            if !self.registers.status0().await.crc_chk() {
                 debug!("Invalid CRC");
             } else if Header(header).message_type()
                 == MessageType::Control(ControlMessageType::GoodCRC)
@@ -340,18 +354,18 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         }
     }
 
-    fn establish_retry_wait(&mut self) {
+    async fn establish_retry_wait(&mut self) {
         debug!("Reset");
 
         // Reset FUSB302
-        self.init();
+        self.init().await;
         self.state = State::RetryWait;
-        self.timeout.start(Duration::millis(500));
+        self.timeout.start(Duration::from_millis(500));
 
         self.did_change_protocol = true;
     }
 
-    fn establish_usb_20(&mut self) {
+    async fn establish_usb_20(&mut self) {
         // debug!("EU20");
         // Timeouts crash without this...
         // self.state = State::Measuring { cc_pin: CcPin::CC1 };
@@ -359,36 +373,39 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // self.timeout.start(Duration::millis(500));
         // self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
 
-        self.start_sink();
+        self.start_sink().await;
     }
 
-    fn establish_usb_pd_wait(&mut self) {
+    async fn establish_usb_pd_wait(&mut self) {
         let State::Measuring { cc_pin } = self.state else {
             panic!();
         };
 
         // Enable automatic retries
         self.registers
-            .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3));
+            .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3))
+            .await;
 
         // Enable interrupts for CC activity and CRC_CHK
-        self.registers.set_mask1(
-            Mask1::default()
-                .with_m_activity(false)
-                .with_m_alert(true)
-                .with_m_bc_lvl(true)
-                .with_m_collision(true)
-                .with_m_comp_chng(true)
-                .with_m_crc_chk(false)
-                .with_m_vbusok(true)
-                .with_m_wake(true),
-        );
+        self.registers
+            .set_mask1(
+                Mask1::default()
+                    .with_m_activity(false)
+                    .with_m_alert(true)
+                    .with_m_bc_lvl(true)
+                    .with_m_collision(true)
+                    .with_m_comp_chng(true)
+                    .with_m_crc_chk(false)
+                    .with_m_vbusok(true)
+                    .with_m_wake(true),
+            )
+            .await;
 
         // Unmask all interrupts (toggle done, hard reset, tx sent etc.)
-        self.registers.set_mask_a(MaskA::default());
+        self.registers.set_mask_a(MaskA::default()).await;
 
         // Enable good CRC sent interrupt
-        self.registers.set_mask_b(MaskB::default());
+        self.registers.set_mask_b(MaskB::default()).await;
 
         // Enable pull down and CC monitoring
         let switches0 = {
@@ -399,7 +416,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             }
         };
 
-        self.registers.set_switches0(switches0);
+        self.registers.set_switches0(switches0).await;
 
         // Configure: auto CRC and BMC transmit on CC pin
         let switches1 = {
@@ -411,10 +428,10 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 CcPin::CC2 => switches1.with_txcc2(true),
             }
         };
-        self.registers.set_switches1(switches1);
+        self.registers.set_switches1(switches1).await;
 
         self.state = State::Ready;
-        self.timeout.start(Duration::millis(300u64))
+        self.timeout.start(Duration::from_millis(300u64))
     }
 
     fn establish_usb_pd(&mut self) {
@@ -426,16 +443,17 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.did_change_protocol = true;
     }
 
-    fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) {
+    async fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) {
         // Read token and header
         let mut buf = [0u8; 3];
-        self.registers.read_fifo(&mut buf);
+        self.registers.read_fifo(&mut buf).await;
 
         // Check for SOP token
         if (buf[0] & 0xe0) != 0xe0 {
             // Flush RX FIFO
             self.registers
-                .set_control1(Control1::default().with_rx_flush(true));
+                .set_control1(Control1::default().with_rx_flush(true))
+                .await;
             warn!("Flushed RX buffer");
             return;
         }
@@ -446,7 +464,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
         // Get payload and CRC length
         let len = Header(*header).num_objects() * 4;
-        self.registers.read_fifo(&mut payload[..len + 4]);
+        self.registers.read_fifo(&mut payload[..len + 4]).await;
     }
 }
 

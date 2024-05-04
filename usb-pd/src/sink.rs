@@ -3,22 +3,24 @@ use {
         header::{DataMessageType, Header, SpecificationRevision},
         message::Message,
         pdo::{FixedVariableRequestDataObject, PowerDataObject},
-        Instant, PowerRole,
+        PowerRole,
     },
+    core::future::Future,
     defmt::{warn, Format},
+    embassy_time::Instant,
     heapless::Vec,
 };
 
 pub trait Driver {
-    fn init(&mut self);
+    fn init(&mut self) -> impl Future<Output = ()>;
 
-    fn poll(&mut self, now: Instant);
+    fn poll(&mut self, now: Instant) -> impl Future<Output = ()>;
 
     fn get_pending_message(&mut self) -> Option<Message>;
 
     fn did_change_protocol(&mut self) -> bool;
 
-    fn send_message(&mut self, header: Header, payload: &[u8]);
+    fn send_message(&mut self, header: Header, payload: &[u8]) -> impl Future<Output = ()>;
 
     fn state(&mut self) -> DriverState;
 }
@@ -95,15 +97,15 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         }
     }
 
-    pub fn init(&mut self) {
-        self.driver.init();
+    pub async fn init(&mut self) {
+        self.driver.init().await;
         self.update_protocol();
     }
 
     /// Call continously until `None` is returned.
-    pub fn poll(&mut self, now: Instant) -> Option<Event> {
+    pub async fn poll(&mut self, now: Instant) -> Option<Event> {
         // poll inner driver
-        self.driver.poll(now);
+        self.driver.poll(now).await;
 
         if let Some(message) = self.driver.get_pending_message() {
             return self.handle_msg(message);
@@ -120,9 +122,9 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         }
     }
 
-    pub fn request(&mut self, request: Request) {
+    pub async fn request(&mut self, request: Request) {
         match request {
-            Request::RequestPower { index, current } => self.request_power(current, index),
+            Request::RequestPower { index, current } => self.request_power(current, index).await,
         }
     }
 
@@ -160,14 +162,16 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 match payload {
                     crate::pdo::VDMHeader::Structured(hdr) => {
                         warn!(
-                            "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD: {:?}",
+                            "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD:
+                        {:?}",
                             hdr.command_type(),
                             hdr.command()
                         );
                     }
                     crate::pdo::VDMHeader::Unstructured(hdr) => {
                         warn!(
-                            "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA: {:x}",
+                            "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA:
+                        {:x}",
                             hdr.standard_or_vid(),
                             hdr.data()
                         );
@@ -183,7 +187,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         }
     }
 
-    fn request_power(&mut self, max_current: u16, index: usize) {
+    async fn request_power(&mut self, max_current: u16, index: usize) {
         // Create 'request' message
         let mut payload = [0; 4];
 
@@ -196,7 +200,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             .with_port_power_role(PowerRole::Sink);
 
         // Send message
-        self.driver.send_message(header, &payload);
+        self.driver.send_message(header, &payload).await;
     }
 
     fn set_request_payload_fixed(&mut self, payload: &mut [u8], obj_pos: u8, mut current: u16) {
