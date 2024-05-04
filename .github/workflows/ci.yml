@@ -63,7 +63,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-          target: thumbv6m-none-eabi
+          target: thumbv7m-none-eabi
 
       - name: Cache artifacts
         uses: Swatinem/rust-cache@v2
@@ -74,12 +74,12 @@ jobs:
           command: doc
 
       # https://github.com/actions/upload-pages-artifact#file-permissions
-      - run: chmod -c -R +rX ./target/thumbv6m-none-eabi/doc
+      - run: chmod -c -R +rX ./target/thumbv7m-none-eabi/doc
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v1
         with:
-          path: ./target/thumbv6m-none-eabi/doc
+          path: ./target/thumbv7m-none-eabi/doc
 
       - name: Deploy to GitHub Pages
         id: deployment
