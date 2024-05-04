@@ -1,4 +1,4 @@
 [toolchain]
 channel = "nightly"
 profile = "default"
-targets = ["thumbv6m-none-eabi"]
+targets = ["thumbv7m-none-eabi"]

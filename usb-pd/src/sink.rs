@@ -5,21 +5,22 @@ use {
         pdo::{FixedVariableRequestDataObject, PowerDataObject},
         PowerRole,
     },
+    core::future::Future,
     defmt::{warn, Format},
     embassy_time::Instant,
     heapless::Vec,
 };
 
 pub trait Driver {
-    async fn init(&mut self);
+    fn init(&mut self) -> impl Future<Output = ()>;
 
-    async fn poll(&mut self, now: Instant);
+    fn poll(&mut self, now: Instant) -> impl Future<Output = ()>;
 
     fn get_pending_message(&mut self) -> Option<Message>;
 
     fn did_change_protocol(&mut self) -> bool;
 
-    async fn send_message(&mut self, header: Header, payload: &[u8]);
+    fn send_message(&mut self, header: Header, payload: &[u8]) -> impl Future<Output = ()>;
 
     fn state(&mut self) -> DriverState;
 }
@@ -161,14 +162,16 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 match payload {
                     crate::pdo::VDMHeader::Structured(hdr) => {
                         warn!(
-                            "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD: {:?}",
+                            "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD:
+                        {:?}",
                             hdr.command_type(),
                             hdr.command()
                         );
                     }
                     crate::pdo::VDMHeader::Unstructured(hdr) => {
                         warn!(
-                            "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA: {:x}",
+                            "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA:
+                        {:x}",
                             hdr.standard_or_vid(),
                             hdr.data()
                         );

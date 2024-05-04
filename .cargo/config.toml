@@ -1,8 +1,8 @@
 [build]
-target = "thumbv6m-none-eabi"
+target = "thumbv7m-none-eabi"
 
-[target.thumbv6m-none-eabi]
-runner = "probe-rs run --chip STM32F030F4Px"
+[target.thumbv7m-none-eabi]
+runner = "probe-rs run --always-print-stacktrace --chip STM32F103C8"
 
 [env]
-DEFMT_LOG = "error"
+DEFMT_LOG = "trace"

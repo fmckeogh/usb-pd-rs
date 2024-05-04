@@ -88,33 +88,32 @@ impl<I2C: I2c> Registers<I2C> {
     }
 
     async fn write_register_raw(&mut self, register: u8, value: u8) {
-        assert!(self
-            .i2c
+        self.i2c
             .write(DEVICE_ADDRESS, &[register, value])
             .await
-            .is_ok());
+            .unwrap();
     }
 
     async fn read_register_raw(&mut self, register: u8) -> u8 {
         let mut buffer = [0u8];
-        assert!(self
+        (self
             .i2c
             .write_read(DEVICE_ADDRESS, &[register], &mut buffer)
             .await
-            .is_ok());
+            .unwrap());
         buffer[0]
     }
 
     pub async fn read_fifo(&mut self, buf: &mut [u8]) {
-        assert!(self
+        (self
             .i2c
             .write_read(DEVICE_ADDRESS, &[Register::Fifo as u8], buf)
             .await
-            .is_ok());
+            .unwrap());
     }
 
     pub async fn write_raw(&mut self, buf: &mut [u8]) {
-        assert!(self.i2c.write(DEVICE_ADDRESS, buf).await.is_ok());
+        (self.i2c.write(DEVICE_ADDRESS, buf).await.unwrap());
     }
 
     generate_register_accessors!(
