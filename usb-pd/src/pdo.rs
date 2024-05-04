@@ -4,7 +4,7 @@ use {
     proc_bitfield::bitfield,
 };
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Debug, Format)]
 pub enum PowerDataObject {
     FixedSupply(FixedSupply),
     Battery(Battery),
@@ -14,14 +14,14 @@ pub enum PowerDataObject {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct PowerDataObjectRaw(pub u32): FromRaw, IntoRaw {
+    pub struct PowerDataObjectRaw(pub u32): Debug, FromRaw, IntoRaw {
         pub kind: u8 @ 30..=31,
     }
 }
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct FixedSupply(pub u32): FromRaw, IntoRaw {
+    pub struct FixedSupply(pub u32): Debug, FromRaw, IntoRaw {
         /// Fixed supply
         pub kind: u8 @ 30..=31,
         /// Dual-role power
@@ -49,7 +49,7 @@ bitfield! {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct Battery(pub u32): FromRaw, IntoRaw {
+    pub struct Battery(pub u32): Debug, FromRaw, IntoRaw {
         /// Battery
         pub kind: u8 @ 30..=31,
         /// Maximum Voltage in 50mV units
@@ -63,7 +63,7 @@ bitfield! {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct VariableSupply(pub u32): FromRaw, IntoRaw {
+    pub struct VariableSupply(pub u32): Debug, FromRaw, IntoRaw {
         /// Variable supply (non-battery)
         pub kind: u8 @ 30..=31,
         /// Maximum Voltage in 50mV units
@@ -75,7 +75,7 @@ bitfield! {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Debug, Format)]
 pub enum AugmentedPowerDataObject {
     SPR(SPRProgrammablePowerSupply),
     EPR(EPRAdjustableVoltageSupply),
@@ -83,7 +83,7 @@ pub enum AugmentedPowerDataObject {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct AugmentedPowerDataObjectRaw(pub u32): FromRaw, IntoRaw {
+    pub struct AugmentedPowerDataObjectRaw(pub u32): Debug, FromRaw, IntoRaw {
         /// Augmented power data object
         pub kind: u8 @ 30..=31,
         pub supply: u8 @ 28..=29,
@@ -93,7 +93,7 @@ bitfield! {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct SPRProgrammablePowerSupply(pub u32): FromRaw, IntoRaw {
+    pub struct SPRProgrammablePowerSupply(pub u32): Debug, FromRaw, IntoRaw {
         /// Augmented power data object
         pub kind: u8 @ 30..=31,
         /// SPR programmable power supply
@@ -110,7 +110,7 @@ bitfield! {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct EPRAdjustableVoltageSupply(pub u32): FromRaw, IntoRaw {
+    pub struct EPRAdjustableVoltageSupply(pub u32): Debug, FromRaw, IntoRaw {
         /// Augmented power data object
         pub kind: u8 @ 30..=31,
         /// EPR adjustable voltage supply
@@ -127,7 +127,7 @@ bitfield! {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct FixedVariableRequestDataObject(pub u32): FromRaw, IntoRaw {
+    pub struct FixedVariableRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
         /// Valid range 1..=14
         pub object_position: u8 @ 28..=31,
         pub giveback_flag: bool @ 27,
@@ -147,7 +147,7 @@ impl FixedVariableRequestDataObject {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Debug, Format)]
 pub enum VDMCommandType {
     InitiatorREQ,
     ResponderACK,
@@ -179,7 +179,7 @@ impl From<u8> for VDMCommandType {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Debug, Format)]
 pub enum VDMCommand {
     DiscoverIdentity,
     DiscoverSVIDS,
@@ -222,7 +222,7 @@ impl From<u8> for VDMCommand {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Debug, Format)]
 pub enum VDMType {
     Unstructured,
     Structured,
@@ -246,7 +246,7 @@ impl From<bool> for VDMType {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Debug, Format)]
 pub enum VDMHeader {
     Structured(VDMHeaderStructured),
     Unstructured(VDMHeaderUnstructured),
@@ -254,7 +254,7 @@ pub enum VDMHeader {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct VDMHeaderRaw(pub u32): FromRaw, IntoRaw {
+    pub struct VDMHeaderRaw(pub u32): Debug, FromRaw, IntoRaw {
         /// VDM Standard or Vendor ID
         pub standard_or_vid: u16 @ 16..=31,
         /// VDM Type (Unstructured/Structured)
@@ -270,7 +270,7 @@ impl VDMHeaderRaw {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct VDMHeaderStructured(pub u32): FromRaw, IntoRaw {
+    pub struct VDMHeaderStructured(pub u32): Debug, FromRaw, IntoRaw {
         /// VDM Standard or Vendor ID
         pub standard_or_vid: u16 @ 16..=31,
         /// VDM Type (Unstructured/Structured)
@@ -294,7 +294,7 @@ impl VDMHeaderStructured {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct VDMHeaderUnstructured(pub u32): FromRaw, IntoRaw {
+    pub struct VDMHeaderUnstructured(pub u32): Debug, FromRaw, IntoRaw {
         /// VDM Standard or Vendor ID
         pub standard_or_vid: u16 @ 16..=31,
         /// VDM Type (Unstructured/Structured)
@@ -312,7 +312,7 @@ impl VDMHeaderUnstructured {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct VDMIdentityHeader(pub u32): FromRaw, IntoRaw {
+    pub struct VDMIdentityHeader(pub u32): Debug, FromRaw, IntoRaw {
         /// Host data capable
         pub host_data: bool @ 31,
         /// Device data capable
@@ -338,7 +338,7 @@ impl VDMIdentityHeader {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct DisplayPortCapabilities(pub u32): FromRaw, IntoRaw {
+    pub struct DisplayPortCapabilities(pub u32): Debug, FromRaw, IntoRaw {
         /// UFP_D Pin Assignments Supported
         pub ufp_d_pin_assignments: u8 @ 16..=23,
         /// DFP_D Pin Assignments Supported
