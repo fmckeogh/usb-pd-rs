@@ -4,6 +4,7 @@ pub mod header;
 pub mod messages;
 pub mod sink;
 pub mod source;
+pub mod timers;
 pub mod token;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
