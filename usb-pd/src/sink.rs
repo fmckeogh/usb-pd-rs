@@ -9,7 +9,7 @@ use {
         DataRole, PowerRole,
     },
     core::future::Future,
-    defmt::{warn, Format},
+    defmt::{debug, warn, Format},
     embassy_time::Instant,
     heapless::Vec,
 };
@@ -177,7 +177,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 //     product_type_dfp.to_bytes(&mut payload[24..32]);
                 // }
                 debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload);
+                self.driver.send_message(header, &payload).await;
                 debug!("Sent VDM");
             }
             Request::REQDiscoverSVIDS => {
@@ -202,7 +202,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload);
+                self.driver.send_message(header, &payload).await;
                 debug!("Sent VDM");
             }
             Request::REQDiscoverIdentity => {
@@ -227,7 +227,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload);
+                self.driver.send_message(header, &payload).await;
                 debug!("Sent VDM");
             }
         }

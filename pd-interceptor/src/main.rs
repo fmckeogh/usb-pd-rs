@@ -132,6 +132,7 @@ fn handle_event(event: Event) -> Option<Request> {
         Event::ProtocolChanged => info!("protocol changed"),
         Event::PowerAccepted => info!("power accepted"),
         Event::PowerRejected => info!("power rejected"),
+        _ => todo!(),
     }
 
     None

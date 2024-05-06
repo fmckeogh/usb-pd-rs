@@ -71,7 +71,11 @@ impl Message {
                     }
                 };
 
-                let data = payload[4..].chunks_exact(4).take(7).map(|buf| LittleEndian::read_u32(buf)).collect::<Vec<u32, 7>>();
+                let data = payload[4..]
+                    .chunks_exact(4)
+                    .take(7)
+                    .map(|buf| LittleEndian::read_u32(buf))
+                    .collect::<Vec<u32, 7>>();
 
                 trace!("VDM RX: {:?} {:?}", header, data);
                 // trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(),

@@ -8,7 +8,7 @@ use {
         },
         timeout::Timeout,
     },
-    defmt::{debug, trace, warn},
+    defmt::{debug, warn},
     embassy_time::{Duration, Instant},
     embedded_hal_async::i2c::I2c,
     usb_pd::{
