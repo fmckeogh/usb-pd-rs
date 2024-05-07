@@ -1,16 +1,17 @@
+pub mod pdo;
+pub mod vdo;
+
 use {
-    crate::{
-        header::{ControlMessageType, DataMessageType, Header, MessageType},
-        pdo::{
-            AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery,
-            EPRAdjustableVoltageSupply, FixedSupply, PowerDataObject, PowerDataObjectRaw,
-            SPRProgrammablePowerSupply, VDMHeader, VDMHeaderRaw, VDMHeaderStructured,
-            VDMHeaderUnstructured, VDMType, VariableSupply,
-        },
-    },
+    crate::header::{ControlMessageType, DataMessageType, Header, MessageType},
     byteorder::{ByteOrder, LittleEndian},
     defmt::{trace, warn, Format},
     heapless::Vec,
+    pdo::{
+        AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery, EPRAdjustableVoltageSupply,
+        FixedSupply, PowerDataObject, PowerDataObjectRaw, SPRProgrammablePowerSupply,
+        VariableSupply,
+    },
+    vdo::{VDMHeader, VDMHeaderRaw, VDMHeaderStructured, VDMHeaderUnstructured, VDMType},
 };
 
 #[derive(Debug, Clone, Format)]
@@ -19,7 +20,7 @@ pub enum Message {
     Reject,
     Ready,
     SourceCapabilities(Vec<PowerDataObject, 8>),
-    VendorDefined(VDMHeader), // TODO: Incomplete
+    VendorDefined((VDMHeader, Vec<u32, 7>)), // TODO: Incomplete
     SoftReset,
     Unknown,
 }
@@ -57,9 +58,9 @@ impl Message {
             ),
             MessageType::Data(DataMessageType::VendorDefined) => {
                 // Keep for now...
-                // let len = payload.len();
-                // let num_obj = header.num_objects();
-                //debug!("VENDOR: {:?}, {:?}, {:?}", len, num_obj, payload);
+                let len = payload.len();
+                let num_obj = header.num_objects();
+                trace!("VENDOR: {:?}, {:?}, {:x}", len, num_obj, payload);
 
                 let header = {
                     let raw = VDMHeaderRaw(LittleEndian::read_u32(&payload[..4]));
@@ -71,7 +72,13 @@ impl Message {
                     }
                 };
 
-                trace!("VDM RX: {:?}", header);
+                let data = payload[4..]
+                    .chunks_exact(4)
+                    .take(7)
+                    .map(|buf| LittleEndian::read_u32(buf))
+                    .collect::<Vec<u32, 7>>();
+
+                trace!("VDM RX: {:?} {:?}", header, data);
                 // trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(),
                 // header.vdm_version()); trace!("HEADER: CMD:: TYPE: {:?}, CMD:
                 // {:?}", header.command_type(), header.command());
@@ -83,7 +90,7 @@ impl Message {
                 //     .map(|i| i[0])
                 //     .collect::<Vec<u8, 8>>();
 
-                Message::VendorDefined(header)
+                Message::VendorDefined((header, data))
             }
             _ => {
                 warn!("unknown message type");
