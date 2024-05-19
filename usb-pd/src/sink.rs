@@ -365,7 +365,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
 
         FixedVariableRequestDataObject(0)
             .with_operating_current(current)
-            .with_maximum_operating_current(current)
+            .with_max_operating_current(current)
             .with_object_position(obj_pos)
             .with_no_usb_suspend(true)
             .with_usb_communications_capable(true)
