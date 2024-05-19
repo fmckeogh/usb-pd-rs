@@ -49,10 +49,16 @@ impl Message {
                                 0b01 => {
                                     AugmentedPowerDataObject::EPR(EPRAdjustableVoltageSupply(pdo.0))
                                 }
-                                _ => unreachable!(),
+                                _ => {
+                                    warn!("Unknown AugmentedPowerDataObject supply");
+                                    AugmentedPowerDataObject::Unknown(pdo.0)
+                                }
                             }
                         }),
-                        _ => unreachable!(),
+                        _ => {
+                            warn!("Unknown PowerDataObject kind");
+                            PowerDataObject::Unknown(pdo)
+                        }
                     })
                     .collect(),
             ),

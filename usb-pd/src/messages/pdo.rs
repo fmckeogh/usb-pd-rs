@@ -10,10 +10,11 @@ pub enum PowerDataObject {
     Battery(Battery),
     VariableSupply(VariableSupply),
     AugmentedPowerDataObject(AugmentedPowerDataObject),
+    Unknown(PowerDataObjectRaw),
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
     pub struct PowerDataObjectRaw(pub u32): Debug, FromRaw, IntoRaw {
         pub kind: u8 @ 30..=31,
     }
@@ -79,6 +80,7 @@ bitfield! {
 pub enum AugmentedPowerDataObject {
     SPR(SPRProgrammablePowerSupply),
     EPR(EPRAdjustableVoltageSupply),
+    Unknown(u32),
 }
 
 bitfield! {
