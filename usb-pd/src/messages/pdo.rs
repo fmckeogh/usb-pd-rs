@@ -1,6 +1,7 @@
 use {
     byteorder::{ByteOrder, LittleEndian},
     defmt::Format,
+    heapless::Vec,
     proc_bitfield::bitfield,
 };
 
@@ -204,5 +205,60 @@ bitfield!(
 impl PPSRequestDataObject {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+#[derive(Debug, Clone, Format)]
+pub struct SourceCapabilities(pub(crate) Vec<PowerDataObject, 8>);
+
+impl SourceCapabilities {
+    pub fn vsafe_5v(&self) -> Option<&FixedSupply> {
+        self.0.first().and_then(|supply| {
+            if let PowerDataObject::FixedSupply(supply) = supply {
+                Some(supply)
+            } else {
+                None
+            }
+        })
+    }
+
+    pub fn dual_role_power(&self) -> bool {
+        self.vsafe_5v()
+            .map(FixedSupply::dual_role_power)
+            .unwrap_or_default()
+    }
+
+    pub fn usb_suspend_supported(&self) -> bool {
+        self.vsafe_5v()
+            .map(FixedSupply::usb_suspend_supported)
+            .unwrap_or_default()
+    }
+
+    pub fn unconstrained_power(&self) -> bool {
+        self.vsafe_5v()
+            .map(FixedSupply::unconstrained_power)
+            .unwrap_or_default()
+    }
+
+    pub fn dual_role_data(&self) -> bool {
+        self.vsafe_5v()
+            .map(FixedSupply::dual_role_data)
+            .unwrap_or_default()
+    }
+
+    pub fn unchunked_extended_messages_supported(&self) -> bool {
+        self.vsafe_5v()
+            .map(FixedSupply::unchunked_extended_messages_supported)
+            .unwrap_or_default()
+    }
+
+    pub fn epr_mode_capable(&self) -> bool {
+        self.vsafe_5v()
+            .map(FixedSupply::epr_mode_capable)
+            .unwrap_or_default()
+    }
+
+    pub fn pdos(&self) -> &[PowerDataObject] {
+        &self.0
     }
 }
