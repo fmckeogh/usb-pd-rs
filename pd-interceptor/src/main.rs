@@ -103,6 +103,7 @@ fn handle_event(event: Event) -> Option<Request> {
 
             // Take maximum voltage
             let (index, supply) = caps
+                .pdos()
                 .iter()
                 .enumerate()
                 .filter_map(|(i, cap)| {
@@ -110,22 +111,22 @@ fn handle_event(event: Event) -> Option<Request> {
                         debug!(
                             "supply @ {}: {}mV {}mA",
                             i,
-                            supply.voltage() * 50,
-                            supply.max_current() * 10
+                            supply.voltage_mv(),
+                            supply.max_current_ma()
                         );
                         Some((i, supply))
                     } else {
                         None
                     }
                 })
-                .max_by(|(_, x), (_, y)| x.voltage().cmp(&y.voltage()))
+                .max_by(|(_, x), (_, y)| x.raw_voltage().cmp(&y.raw_voltage()))
                 .unwrap();
 
             info!("requesting supply {:?}@{}", supply, index);
 
             return Some(Request::RequestPower {
                 index,
-                current: supply.max_current() * 10,
+                current: supply.max_current_ma(),
             });
         }
         Event::PowerReady => info!("power ready"),

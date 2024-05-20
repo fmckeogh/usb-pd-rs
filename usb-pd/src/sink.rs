@@ -2,7 +2,7 @@ use {
     crate::{
         header::{DataMessageType, Header, SpecificationRevision},
         messages::{
-            pdo::{FixedVariableRequestDataObject, PPSRequestDataObject, PowerDataObject},
+            pdo::{FixedVariableRequestDataObject, PPSRequestDataObject, SourceCapabilities},
             vdo::{
                 CertStatVDO, ProductVDO, UFPTypeVDO, VDMCommand, VDMCommandType, VDMHeader,
                 VDMHeaderStructured, VDMIdentityHeader, VDMType, VDMVersionMajor, VDMVersionMinor,
@@ -37,7 +37,7 @@ pub enum Event {
     /// Power delivery protocol has changed
     ProtocolChanged,
     /// Source capabilities have changed (immediately request power)
-    SourceCapabilitiesChanged(Vec<PowerDataObject, 8>),
+    SourceCapabilitiesChanged(SourceCapabilities),
     /// Requested power has been accepted (but not ready yet)
     PowerAccepted,
     /// Requested power has been rejected
@@ -365,7 +365,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
 
         FixedVariableRequestDataObject(0)
             .with_operating_current(current)
-            .with_maximum_operating_current(current)
+            .with_max_operating_current(current)
             .with_object_position(obj_pos)
             .with_no_usb_suspend(true)
             .with_usb_communications_capable(true)
