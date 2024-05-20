@@ -127,7 +127,7 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
             .await;
 
         self.registers
-            .set_control0(Control0::default().with_int_mask(false).with_host_cur(01))
+            .set_control0(Control0::default().with_int_mask(false).with_host_cur(0b01))
             .await;
         self.registers
             .set_control3(
@@ -288,7 +288,6 @@ impl<I2C: I2c> Fusb302b<I2C> {
             panic!();
         };
 
-        let _ = self.registers.status0();
         if self.registers.status0().await.bc_lvl() == 0 {
             // No CC activity
             *cc_pin = !*cc_pin;
