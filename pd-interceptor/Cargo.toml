@@ -19,3 +19,5 @@ fusb302b = { path = "../fusb302b" }
 usb-pd = { path = "../usb-pd" }
 panic-probe = { version = "0.3.1", features = ["print-defmt"] }
 aht20-async = "1.0.0"
+
+uom = { version = "0.36.0", default-features = false, features = ["si"] }

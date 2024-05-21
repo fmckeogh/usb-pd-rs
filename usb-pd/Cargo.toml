@@ -15,4 +15,4 @@ byteorder = { version = "1.5.0", default-features = false }
 defmt = "0.3.6"
 heapless = { version = "0.8.0", features = ["defmt-03"] }
 embassy-time = "0.3.0"
-uom = { version = "0.36.0", default-features = false, features = ["autoconvert", "si", "u16", "u32"] }
+uom = { version = "0.36.0", default-features = false, features = ["autoconvert", "si", "u8", "u16", "u32"] }

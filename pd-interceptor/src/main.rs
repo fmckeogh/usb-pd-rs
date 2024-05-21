@@ -15,6 +15,7 @@ use {
     embassy_time::Instant,
     fusb302b::Fusb302b,
     panic_probe as _,
+    uom::si::{electric_current::milliampere, electric_potential::millivolt},
     usb_pd::{
         messages::pdo::PowerDataObject,
         sink::{Event, Request, Sink},
@@ -109,10 +110,10 @@ fn handle_event(event: Event) -> Option<Request> {
                 .filter_map(|(i, cap)| {
                     if let PowerDataObject::FixedSupply(supply) = cap {
                         debug!(
-                            "supply @ {}: {}V {}A",
+                            "supply @ {}: {}mV {}mA",
                             i,
-                            supply.voltage().value,
-                            supply.max_current().value
+                            supply.voltage().get::<millivolt>(),
+                            supply.max_current().get::<milliampere>(),
                         );
                         Some((i, supply))
                     } else {
