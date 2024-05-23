@@ -15,6 +15,7 @@ use {
     embassy_time::Instant,
     fusb302b::Fusb302b,
     panic_probe as _,
+    uom::si::{electric_current::milliampere, electric_potential::millivolt},
     usb_pd::{
         messages::pdo::PowerDataObject,
         sink::{Event, Request, Sink},
@@ -111,8 +112,8 @@ fn handle_event(event: Event) -> Option<Request> {
                         debug!(
                             "supply @ {}: {}mV {}mA",
                             i,
-                            supply.voltage_mv(),
-                            supply.max_current_ma()
+                            supply.voltage().get::<millivolt>(),
+                            supply.max_current().get::<milliampere>(),
                         );
                         Some((i, supply))
                     } else {
@@ -122,12 +123,14 @@ fn handle_event(event: Event) -> Option<Request> {
                 .max_by(|(_, x), (_, y)| x.raw_voltage().cmp(&y.raw_voltage()))
                 .unwrap();
 
-            info!("requesting supply {:?}@{}", supply, index);
-
-            return Some(Request::RequestPower {
+            let req = Request::RequestPower {
                 index,
-                current: supply.max_current_ma(),
-            });
+                current: supply.raw_max_current(),
+            };
+
+            info!("requesting {}", req);
+
+            return Some(req);
         }
         Event::PowerReady => info!("power ready"),
         Event::ProtocolChanged => info!("protocol changed"),

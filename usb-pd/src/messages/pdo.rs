@@ -1,9 +1,40 @@
 use {
+    _250milliwatts_mod::_250milliwatts,
+    _50milliamperes_mod::_50milliamperes,
+    _50millivolts_mod::_50millivolts,
     byteorder::{ByteOrder, LittleEndian},
     defmt::Format,
     heapless::Vec,
     proc_bitfield::bitfield,
+    uom::si::{self, electric_current::centiampere, electric_potential::decivolt, power::watt},
 };
+
+mod _50milliamperes_mod {
+    unit! {
+        system: uom::si;
+        quantity: uom::si::electric_current;
+
+        @_50milliamperes: 0.05; "_50mA", "_50milliamps", "_50milliamps";
+    }
+}
+
+mod _50millivolts_mod {
+    unit! {
+        system: uom::si;
+        quantity: uom::si::electric_potential;
+
+        @_50millivolts: 0.05; "_50mV", "_50millivolts", "_50millivolts";
+    }
+}
+
+mod _250milliwatts_mod {
+    unit! {
+        system: uom::si;
+        quantity: uom::si::power;
+
+        @_250milliwatts: 0.25; "_250mW", "_250milliwatts", "_250milliwatts";
+    }
+}
 
 #[derive(Clone, Copy, Debug, Format)]
 pub enum PowerDataObject {
@@ -50,12 +81,12 @@ bitfield! {
 }
 
 impl FixedSupply {
-    pub fn voltage_mv(&self) -> u16 {
-        self.raw_voltage() * 50
+    pub fn voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_50millivolts>(self.raw_voltage())
     }
 
-    pub fn max_current_ma(&self) -> u16 {
-        self.raw_max_current() * 10
+    pub fn max_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<centiampere>(self.raw_max_current())
     }
 }
 
@@ -74,16 +105,16 @@ bitfield! {
 }
 
 impl Battery {
-    pub fn max_voltage_mv(&self) -> u16 {
-        u16::from(self.raw_max_voltage()) * 50
+    pub fn max_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_50millivolts>(self.raw_max_voltage())
     }
 
-    pub fn min_voltage_mv(&self) -> u16 {
-        u16::from(self.raw_min_voltage()) * 50
+    pub fn min_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_50millivolts>(self.raw_min_voltage())
     }
 
-    pub fn max_power_mw(&self) -> u32 {
-        u32::from(self.raw_max_power()) * 250
+    pub fn max_power(&self) -> si::u16::Power {
+        si::u16::Power::new::<_250milliwatts>(self.raw_max_power())
     }
 }
 
@@ -102,16 +133,16 @@ bitfield! {
 }
 
 impl VariableSupply {
-    pub fn max_voltage_mv(&self) -> u16 {
-        u16::from(self.raw_max_voltage()) * 50
+    pub fn max_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_50millivolts>(self.raw_max_voltage())
     }
 
-    pub fn min_voltage_mv(&self) -> u16 {
-        u16::from(self.raw_min_voltage()) * 50
+    pub fn min_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_50millivolts>(self.raw_min_voltage())
     }
 
-    pub fn max_current_ma(&self) -> u16 {
-        u16::from(self.raw_max_current()) * 10
+    pub fn max_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<centiampere>(self.raw_max_current())
     }
 }
 
@@ -150,16 +181,16 @@ bitfield! {
 }
 
 impl SPRProgrammablePowerSupply {
-    pub fn max_voltage_mv(&self) -> u16 {
-        u16::from(self.raw_max_voltage()) * 100
+    pub fn max_voltage(&self) -> si::u8::ElectricPotential {
+        si::u8::ElectricPotential::new::<decivolt>(self.raw_max_voltage())
     }
 
-    pub fn min_voltage_mv(&self) -> u16 {
-        u16::from(self.raw_min_voltage()) * 100
+    pub fn min_voltage(&self) -> si::u8::ElectricPotential {
+        si::u8::ElectricPotential::new::<decivolt>(self.raw_min_voltage())
     }
 
-    pub fn max_current_ma(&self) -> u16 {
-        u16::from(self.raw_max_current()) * 50
+    pub fn max_current(&self) -> si::u8::ElectricCurrent {
+        si::u8::ElectricCurrent::new::<_50milliamperes>(self.raw_max_current())
     }
 }
 
@@ -176,17 +207,21 @@ bitfield! {
         /// Minimum Voltage in 100mV increments
         pub raw_min_voltage: u8 @ 8..=15,
         /// PDP in 1W increments
-        pub pd_power: u8 @ 0..=7,
+        pub raw_pd_power: u8 @ 0..=7,
     }
 }
 
 impl EPRAdjustableVoltageSupply {
-    pub fn max_voltage_mv(&self) -> u16 {
-        u16::from(self.raw_max_voltage()) * 100
+    pub fn max_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<decivolt>(self.raw_max_voltage())
     }
 
-    pub fn min_voltage_mv(&self) -> u16 {
-        u16::from(self.raw_min_voltage()) * 100
+    pub fn min_voltage(&self) -> si::u8::ElectricPotential {
+        si::u8::ElectricPotential::new::<decivolt>(self.raw_min_voltage())
+    }
+
+    pub fn pd_power(&self) -> si::u8::Power {
+        si::u8::Power::new::<watt>(self.raw_pd_power())
     }
 }
 
