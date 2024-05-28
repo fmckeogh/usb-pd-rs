@@ -1,4 +1,5 @@
 use {
+    super::PdoState,
     _20millivolts_mod::_20millivolts,
     _250milliwatts_mod::_250milliwatts,
     _50milliamperes_mod::_50milliamperes,
@@ -44,6 +45,15 @@ mod _250milliwatts_mod {
 
         @_250milliwatts: 0.25; "_250mW", "_250milliwatts", "_250milliwatts";
     }
+}
+
+#[derive(Clone, Copy, Debug, Format)]
+pub enum PowerDataObjectType {
+    FixedSupply,
+    Battery,
+    VariableSupply,
+    PPS,
+    AVS,
 }
 
 #[derive(Clone, Copy, Debug, Format)]
@@ -458,5 +468,35 @@ impl SourceCapabilities {
 
     pub fn pdos(&self) -> &[PowerDataObject] {
         &self.0
+    }
+}
+
+impl PdoState for SourceCapabilities {
+    fn pdo_at_object_position(&self, position: u8) -> Option<PowerDataObjectType> {
+        self.pdos()
+            .get(position.saturating_sub(1) as usize)
+            .and_then(|pdo| match pdo {
+                PowerDataObject::FixedSupply(_) => Some(PowerDataObjectType::FixedSupply),
+                PowerDataObject::Battery(_) => Some(PowerDataObjectType::Battery),
+                PowerDataObject::VariableSupply(_) => Some(PowerDataObjectType::VariableSupply),
+                PowerDataObject::AugmentedPowerDataObject(augmented) => match augmented {
+                    AugmentedPowerDataObject::SPR(_) => Some(PowerDataObjectType::PPS),
+                    AugmentedPowerDataObject::EPR(_) => Some(PowerDataObjectType::AVS),
+                    AugmentedPowerDataObject::Unknown(_) => None,
+                },
+                PowerDataObject::Unknown(_) => None,
+            })
+    }
+}
+
+impl PdoState for Option<SourceCapabilities> {
+    fn pdo_at_object_position(&self, position: u8) -> Option<PowerDataObjectType> {
+        self.as_ref().pdo_at_object_position(position)
+    }
+}
+
+impl PdoState for Option<&SourceCapabilities> {
+    fn pdo_at_object_position(&self, position: u8) -> Option<PowerDataObjectType> {
+        self.and_then(|s| s.pdo_at_object_position(position))
     }
 }

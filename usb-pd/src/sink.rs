@@ -333,6 +333,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 warn!("UNHANDLED: Soft RESET request.");
                 None
             }
+            Message::Request(_) => None,
             Message::Unknown => unimplemented!(),
         }
     }
