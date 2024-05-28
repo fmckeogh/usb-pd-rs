@@ -237,6 +237,14 @@ impl EPRAdjustableVoltageSupply {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct RawRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
+        /// Valid range 1..=14
+        pub object_position: u8 @ 28..=31,
+    }
+}
+
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
     pub struct FixedVariableRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
         /// Valid range 1..=14
         pub object_position: u8 @ 28..=31,
@@ -336,6 +344,65 @@ impl PPSRequestDataObject {
 
     pub fn operating_current(&self) -> si::u16::ElectricCurrent {
         si::u16::ElectricCurrent::new::<_50milliamperes>(self.raw_operating_current())
+    }
+}
+
+bitfield!(
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct AVSRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
+        /// Object position (0000b and 1110b…1111b are Reserved and Shall Not be used)
+        pub object_position: u8 @ 28..=31,
+        /// Capability mismatch
+        pub capability_mismatch: bool @ 26,
+        /// USB communications capable
+        pub usb_communications_capable: bool @ 25,
+        /// No USB Suspend
+        pub no_usb_suspend: bool @ 24,
+        /// Unchunked extended messages supported
+        pub unchunked_extended_messages_supported: bool @ 23,
+        /// EPR mode capable
+        pub epr_mode_capable: bool @ 22,
+        /// Output voltage in 20mV units
+        pub raw_output_voltage: u16 @ 9..=20,
+        /// Operating current in 50mA units
+        pub raw_operating_current: u16 @ 0..=6,
+    }
+);
+
+impl AVSRequestDataObject {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+
+    pub fn output_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_20millivolts>(self.raw_output_voltage())
+    }
+
+    pub fn operating_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<_50milliamperes>(self.raw_operating_current())
+    }
+}
+
+#[derive(Debug, Clone, Format)]
+pub enum Request {
+    FixedSupply(FixedVariableRequestDataObject),
+    VariableSupply(FixedVariableRequestDataObject),
+    Battery(BatteryRequestDataObject),
+    PPS(PPSRequestDataObject),
+    AVS(AVSRequestDataObject),
+    Unknown(RawRequestDataObject),
+}
+
+impl Request {
+    pub fn object_position(&self) -> u8 {
+        match self {
+            Request::FixedSupply(p) => p.object_position(),
+            Request::VariableSupply(p) => p.object_position(),
+            Request::Battery(p) => p.object_position(),
+            Request::PPS(p) => p.object_position(),
+            Request::AVS(p) => p.object_position(),
+            Request::Unknown(p) => p.object_position(),
+        }
     }
 }
 
