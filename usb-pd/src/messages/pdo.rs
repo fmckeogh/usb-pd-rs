@@ -1,4 +1,5 @@
 use {
+    _20millivolts_mod::_20millivolts,
     _250milliwatts_mod::_250milliwatts,
     _50milliamperes_mod::_50milliamperes,
     _50millivolts_mod::_50millivolts,
@@ -8,6 +9,15 @@ use {
     proc_bitfield::bitfield,
     uom::si::{self, electric_current::centiampere, electric_potential::decivolt, power::watt},
 };
+
+mod _20millivolts_mod {
+    unit! {
+        system: uom::si;
+        quantity: uom::si::electric_potential;
+
+        @_20millivolts: 0.02; "_20mV", "_20millivolts", "_20millivolts";
+    }
+}
 
 mod _50milliamperes_mod {
     unit! {
@@ -236,14 +246,22 @@ bitfield! {
         pub no_usb_suspend: bool @ 24,
         pub unchunked_extended_messages_supported: bool @ 23,
         pub epr_mode_capable: bool @ 22,
-        pub operating_current: u16 @ 10..=19,
-        pub max_operating_current: u16 @ 0..=9,
+        pub raw_operating_current: u16 @ 10..=19,
+        pub raw_max_operating_current: u16 @ 0..=9,
     }
 }
 
 impl FixedVariableRequestDataObject {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
+    }
+
+    pub fn operating_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<centiampere>(self.raw_operating_current())
+    }
+
+    pub fn max_operating_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<centiampere>(self.raw_max_operating_current())
     }
 }
 
@@ -265,15 +283,23 @@ bitfield! {
         /// EPR mode capable
         pub epr_mode_capable: bool @ 22,
         /// Operating power in 250mW units
-        pub operating_power: u16 @ 10..=19,
+        pub raw_operating_power: u16 @ 10..=19,
         /// Maximum operating power in 250mW units
-        pub max_operating_power: u16 @ 0..=9,
+        pub raw_max_operating_power: u16 @ 0..=9,
     }
 }
 
 impl BatteryRequestDataObject {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
+    }
+
+    pub fn operating_power(&self) -> si::u32::Power {
+        si::u32::Power::new::<_250milliwatts>(self.raw_operating_power().into())
+    }
+
+    pub fn max_operating_power(&self) -> si::u32::Power {
+        si::u32::Power::new::<_250milliwatts>(self.raw_max_operating_power().into())
     }
 }
 
@@ -293,15 +319,23 @@ bitfield!(
         /// EPR mode capable
         pub epr_mode_capable: bool @ 22,
         /// Output voltage in 20mV units
-        pub output_voltage: u16 @ 9..=20,
+        pub raw_output_voltage: u16 @ 9..=20,
         /// Operating current in 50mA units
-        pub operating_current: u16 @ 0..=6,
+        pub raw_operating_current: u16 @ 0..=6,
     }
 );
 
 impl PPSRequestDataObject {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
+    }
+
+    pub fn output_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_20millivolts>(self.raw_output_voltage())
+    }
+
+    pub fn operating_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<_50milliamperes>(self.raw_operating_current())
     }
 }
 
