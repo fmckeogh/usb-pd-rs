@@ -2,6 +2,10 @@ pub mod pdo;
 pub mod vdo;
 
 use {
+    self::pdo::{
+        AVSRequestDataObject, BatteryRequestDataObject, FixedVariableRequestDataObject,
+        PPSRequestDataObject, PowerDataObjectType, RawRequestDataObject, Request,
+    },
     crate::header::{ControlMessageType, DataMessageType, Header, MessageType},
     byteorder::{ByteOrder, LittleEndian},
     defmt::{trace, warn, Format},
@@ -14,19 +18,30 @@ use {
     vdo::{VDMHeader, VDMHeaderRaw, VDMHeaderStructured, VDMHeaderUnstructured, VDMType},
 };
 
+pub trait PdoState {
+    fn pdo_at_object_position(&self, position: u8) -> Option<PowerDataObjectType>;
+}
+
+impl PdoState for () {
+    fn pdo_at_object_position(&self, _position: u8) -> Option<PowerDataObjectType> {
+        None
+    }
+}
+
 #[derive(Debug, Clone, Format)]
 pub enum Message {
     Accept,
     Reject,
     Ready,
     SourceCapabilities(SourceCapabilities),
+    Request(Request),
     VendorDefined((VDMHeader, Vec<u32, 7>)), // TODO: Incomplete
     SoftReset,
     Unknown,
 }
 
 impl Message {
-    pub fn parse(header: Header, payload: &[u8]) -> Self {
+    pub fn parse_with_state<P: PdoState>(header: Header, payload: &[u8], state: &P) -> Self {
         match header.message_type() {
             MessageType::Control(ControlMessageType::Accept) => Message::Accept,
             MessageType::Control(ControlMessageType::Reject) => Message::Reject,
@@ -63,6 +78,29 @@ impl Message {
                         })
                         .collect(),
                 ))
+            }
+            MessageType::Data(DataMessageType::Request) => {
+                if payload.len() != 4 {
+                    return Message::Unknown;
+                }
+                let raw = RawRequestDataObject(LittleEndian::read_u32(payload));
+                if let Some(t) = state.pdo_at_object_position(raw.object_position()) {
+                    Message::Request(match t {
+                        PowerDataObjectType::FixedSupply => {
+                            Request::FixedSupply(FixedVariableRequestDataObject(raw.0))
+                        }
+                        PowerDataObjectType::Battery => {
+                            Request::Battery(BatteryRequestDataObject(raw.0))
+                        }
+                        PowerDataObjectType::VariableSupply => {
+                            Request::VariableSupply(FixedVariableRequestDataObject(raw.0))
+                        }
+                        PowerDataObjectType::PPS => Request::PPS(PPSRequestDataObject(raw.0)),
+                        PowerDataObjectType::AVS => Request::AVS(AVSRequestDataObject(raw.0)),
+                    })
+                } else {
+                    Message::Request(Request::Unknown(raw))
+                }
             }
             MessageType::Data(DataMessageType::VendorDefined) => {
                 // Keep for now...
@@ -105,5 +143,9 @@ impl Message {
                 Message::Unknown
             }
         }
+    }
+
+    pub fn parse(header: Header, payload: &[u8]) -> Self {
+        Self::parse_with_state(header, payload, &())
     }
 }
