@@ -30,23 +30,17 @@ impl PdoState for () {
 
 #[derive(Debug, Clone, Format)]
 pub enum Message {
-    Accept,
-    Reject,
-    Ready,
+    Control(ControlMessageType),
     SourceCapabilities(SourceCapabilities),
     Request(Request),
     VendorDefined((VDMHeader, Vec<u32, 7>)), // TODO: Incomplete
-    SoftReset,
     Unknown,
 }
 
 impl Message {
     pub fn parse_with_state<P: PdoState>(header: Header, payload: &[u8], state: &P) -> Self {
         match header.message_type() {
-            MessageType::Control(ControlMessageType::Accept) => Message::Accept,
-            MessageType::Control(ControlMessageType::Reject) => Message::Reject,
-            MessageType::Control(ControlMessageType::PsRdy) => Message::Ready,
-            MessageType::Control(ControlMessageType::SoftReset) => Message::SoftReset,
+            MessageType::Control(c) => Message::Control(c),
             MessageType::Data(DataMessageType::SourceCapabilities) => {
                 Message::SourceCapabilities(SourceCapabilities(
                     payload
@@ -105,6 +99,9 @@ impl Message {
             MessageType::Data(DataMessageType::VendorDefined) => {
                 // Keep for now...
                 let len = payload.len();
+                if len < 4 {
+                    return Message::Unknown;
+                }
                 let num_obj = header.num_objects();
                 trace!("VENDOR: {:?}, {:?}, {:x}", len, num_obj, payload);
 
@@ -138,7 +135,7 @@ impl Message {
 
                 Message::VendorDefined((header, data))
             }
-            _ => {
+            MessageType::Data(_) => {
                 warn!("unknown message type");
                 Message::Unknown
             }
