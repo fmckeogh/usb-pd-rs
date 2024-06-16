@@ -99,6 +99,9 @@ impl Message {
             MessageType::Data(DataMessageType::VendorDefined) => {
                 // Keep for now...
                 let len = payload.len();
+                if len < 4 {
+                    return Message::Unknown;
+                }
                 let num_obj = header.num_objects();
                 trace!("VENDOR: {:?}, {:?}, {:x}", len, num_obj, payload);
 
