@@ -3,8 +3,8 @@
 use {
     crate::{
         registers::{
-            Control1, Control3, Mask1, MaskA, MaskB, Power, Reset, Revision, Slice, Switches0,
-            Switches1,
+            Control1, Control3, Mask1, MaskA, MaskB, Power, Registers, Reset, Revision, Slice,
+            Switches0, Switches1,
         },
         timeout::Timeout,
     },
@@ -31,7 +31,7 @@ const DEVICE_ADDRESS: u8 = 0b0100010;
 
 /// FUSB302B Programmable USB Type‐C Controller w/PD
 pub struct Fusb302b<I2C, F> {
-    i2c: I2C,
+    registers: Registers<I2C>,
     state: State,
     callback: F,
 }
@@ -66,17 +66,18 @@ enum Event {
 impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2C, F> {
     pub fn new(i2c: I2C, callback: F) -> Self {
         Self {
-            i2c,
+            registers: Registers::new(i2c),
             state: State::initial(),
             callback,
         }
     }
 
     pub fn init(&mut self, now: Instant) {
-        self.set_reset(Reset::default().with_pd_reset(true).with_sw_reset(true));
+        self.registers
+            .set_reset(Reset::default().with_pd_reset(true).with_sw_reset(true));
 
         // power up everyting except oscillator
-        self.set_power(
+        self.registers.set_power(
             Power::default()
                 .with_bandgap_wake(true)
                 .with_measure_block(true)
@@ -85,12 +86,13 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
         );
 
         // disable CC monitoring
-        self.set_switches0(Switches0(0));
+        self.registers.set_switches0(Switches0(0));
 
         // mask all interrupts
-        self.set_mask1(Mask1(0xFF));
-        self.set_mask_a(MaskA(0xFF));
-        self.set_mask_b(MaskB::default().with_m_gcrcsent(true));
+        self.registers.set_mask1(Mask1(0xFF));
+        self.registers.set_mask_a(MaskA(0xFF));
+        self.registers
+            .set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
         // As the interrupt line is also used as SWDIO, the FUSB302B interrupt is
         // not activated until activity on CC1 or CC2 has been detected.
@@ -98,7 +100,8 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
         // could do it automatically.
 
         // BMC threshold: 1.35V with a threshold of 85mV
-        self.set_slice(Slice::default().with_sda_hys(0b01).with_sdac(0x20));
+        self.registers
+            .set_slice(Slice::default().with_sda_hys(0b01).with_sdac(0x20));
 
         self.start_measure_cc(now);
     }
@@ -149,7 +152,7 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
 
         timeout.start(now, 10.millis());
 
-        self.set_switches0(switches0);
+        self.registers.set_switches0(switches0);
     }
 
     /// Tests whether the current CC pin being measured is active
@@ -158,7 +161,7 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
             return None;
         };
 
-        if self.status0().bc_lvl() == 0 {
+        if self.registers.status0().bc_lvl() == 0 {
             self.start_measure_cc(now);
             return None;
         }
@@ -168,7 +171,7 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
 
     fn set_state_ready(&mut self, now: Instant) {
         // Enable automatic retries
-        self.set_control3(
+        self.registers.set_control3(
             Control3::default()
                 .with_auto_retry(true)
                 .with_n_retries(0b11),
@@ -204,7 +207,7 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
             CcPin::CC2 => switches1.set_txcc2(true),
         }
 
-        self.set_switches1(switches1);
+        self.registers.set_switches1(switches1);
 
         // // Enable interrupt
         // write_register(reg_control0, control0_none);
@@ -233,9 +236,9 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
     }
 
     fn check_interrupts(&mut self, now: Instant) {
-        let interrupt = self.interrupt();
-        let interrupt_a = self.interrupta();
-        let interrupt_b = self.interruptb();
+        let interrupt = self.registers.interrupt();
+        let interrupt_a = self.registers.interrupta();
+        let interrupt_b = self.registers.interruptb();
 
         let mut message_pending = false;
 
@@ -253,9 +256,9 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
             trace!("tx ack");
 
             // turn off internal oscillator if TX FIFO is empty
-            if self.status1().tx_empty() {
-                let power = self.power().with_internal_oscillator(false);
-                self.set_power(power);
+            if self.registers.status1().tx_empty() {
+                let power = self.registers.power().with_internal_oscillator(false);
+                self.registers.set_power(power);
             }
         }
 
@@ -281,22 +284,24 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
     fn read_messages(&mut self) {
         trace!("reading messages");
 
-        while !self.status1().rx_empty() {
+        while !self.registers.status1().rx_empty() {
             // read message
             let mut buf = [0u8; 3];
-            self.read_fifo(&mut buf);
+            self.registers.read_fifo(&mut buf);
 
             if (buf[0] & 0xe0) != 0xe0 {
-                self.set_control1(Control1::default().with_rx_flush(true));
+                self.registers
+                    .set_control1(Control1::default().with_rx_flush(true));
             }
 
             let header = Header::from_bytes(&buf[1..]);
 
             let mut payload = [0; 64];
-            self.read_fifo(&mut payload[..header.num_objects() as usize * 4 + 4]);
+            self.registers
+                .read_fifo(&mut payload[..header.num_objects() as usize * 4 + 4]);
 
             // check crc
-            if !self.status0().crc_chk() {
+            if !self.registers.status0().crc_chk() {
                 trace!("bad crc");
             } else if header.message_type() == MessageType::Control(ControlMessageType::GoodCRC) {
                 trace!("goodcrc packet")
