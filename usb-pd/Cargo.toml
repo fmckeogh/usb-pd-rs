@@ -8,3 +8,4 @@ proc-bitfield = "0.2.2"
 byteorder = { version = "1.4.3", default-features = false }
 defmt = "0.3.4"
 fugit = "0.3.6"
+heapless = { version = "0.7.16", features = ["defmt-impl"] }
