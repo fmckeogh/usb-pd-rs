@@ -81,7 +81,7 @@ impl Message {
                 let data = payload[4..]
                     .chunks_exact(4)
                     .take(7)
-                    .map(|buf| LittleEndian::read_u32(buf))
+                    .map(LittleEndian::read_u32)
                     .collect::<Vec<u32, 7>>();
 
                 trace!("VDM RX: {:?} {:?}", header, data);
