@@ -58,7 +58,6 @@ impl PdSink {
 
     pub fn init(&mut self) {
         self.pd_controller.init();
-
         self.pd_controller.start_sink();
         self.update_protocol();
     }
@@ -370,7 +369,8 @@ enum callback_event {
 }
 
 /// USB PD message type
-enum pd_msg_type {
+#[derive(PartialEq)]
+pub enum pd_msg_type {
     pd_msg_type_ctrl_good_crc = 0x01,
     pd_msg_type_ctrl_goto_min = 0x02,
     pd_msg_type_ctrl_accept = 0x03,
@@ -405,20 +405,22 @@ enum pd_msg_type {
 }
 
 /// Helper class to constrcut and decode USB PD message headers
-struct pd_header(pub u16);
+pub struct pd_header(pub u16);
 
 impl pd_header {
-    fn has_extended(&self) -> bool {
+    pub fn has_extended(&self) -> bool {
         return (self.0 & 0x8000) != 0;
     }
-    fn num_data_objs(&self) -> usize {
+
+    pub fn num_data_objs(&self) -> usize {
         ((self.0 >> 12) & 0x07) as usize
     }
-    fn message_id(&self) -> u8 {
+
+    pub fn message_id(&self) -> u8 {
         ((self.0 >> 9) & 0x07) as u8
     }
 
-    fn message_type(&self) -> pd_msg_type {
+    pub fn message_type(&self) -> pd_msg_type {
         unsafe {
             core::mem::transmute(
                 ((((self.num_data_objs() != 0) as u16) << 7) | (self.0 & 0x1f)) as u8,
@@ -426,15 +428,15 @@ impl pd_header {
         }
     }
 
-    fn spec_rev(&self) -> u8 {
+    pub fn spec_rev(&self) -> u8 {
         ((self.0 >> 6) as u8 & 0x03) + 1
     }
 
-    fn create_ctrl(msg_type: pd_msg_type, rev: u8) -> Self {
+    pub fn create_ctrl(msg_type: pd_msg_type, rev: u8) -> Self {
         Self((msg_type as u16 & 0x1f) | 0x40 | ((rev as u16 - 1) << 6))
     }
 
-    fn create_data(msg_type: pd_msg_type, num_data_objs: usize, rev: u8) -> Self {
+    pub fn create_data(msg_type: pd_msg_type, num_data_objs: usize, rev: u8) -> Self {
         Self(
             ((num_data_objs as u16 & 0x07) << 12)
                 | (msg_type as u16 & 0x1f)
