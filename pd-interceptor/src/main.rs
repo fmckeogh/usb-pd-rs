@@ -109,10 +109,10 @@ fn handle_event(event: Event) -> Option<Request> {
                 .filter_map(|(i, cap)| {
                     if let PowerDataObject::FixedSupply(supply) = cap {
                         debug!(
-                            "supply @ {}: {}mV {}mA",
+                            "supply @ {}: {}V {}A",
                             i,
-                            supply.voltage_mv(),
-                            supply.max_current_ma()
+                            supply.voltage().value,
+                            supply.max_current().value
                         );
                         Some((i, supply))
                     } else {
@@ -122,12 +122,14 @@ fn handle_event(event: Event) -> Option<Request> {
                 .max_by(|(_, x), (_, y)| x.raw_voltage().cmp(&y.raw_voltage()))
                 .unwrap();
 
-            info!("requesting supply {:?}@{}", supply, index);
-
-            return Some(Request::RequestPower {
+            let req = Request::RequestPower {
                 index,
-                current: supply.max_current_ma(),
-            });
+                current: supply.raw_max_current(),
+            };
+
+            info!("requesting {}", req);
+
+            return Some(req);
         }
         Event::PowerReady => info!("power ready"),
         Event::ProtocolChanged => info!("protocol changed"),
