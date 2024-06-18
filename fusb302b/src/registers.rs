@@ -495,7 +495,19 @@ impl Default for Reset {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct OcPreg(pub u8): Debug, FromRaw, IntoRaw {
+        /// * `true`: OCP range between 100−800 mA (max_range = 800 mA)
+        /// * `false`: OCP range between 10−80 mA (max_range = 80 mA)
+        pub ocp_range: bool @ 3,
 
+        /// * `111`: max_range (see bit definition above for OCP_RANGE)
+        /// * `110`: 7 * max_range / 8
+        /// * `101`: 6 * max_range / 8
+        /// * `100`: 5 * max_range / 8
+        /// * `011`: 4 * max_range / 8
+        /// * `010`: 3 * max_range / 8
+        /// * `001`: 2 * max_range / 8
+        /// * `000`: max_range / 8
+        pub ocp_cur: u8 @ 0..=2,
     }
 }
 
@@ -508,7 +520,22 @@ impl Default for OcPreg {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct MaskA(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Mask the I_OCP_TEMP interrupt
+        pub m_ocp_temp: bool @ 7,
+        /// Mask the I_TOGDONE interrupt
+        pub m_togdone: bool @ 6,
+        /// Mask the I_SOFTFAIL interrupt
+        pub m_softfail: bool @ 5,
+        /// Mask the I_RETRYFAIL interrupt
+        pub m_retryfail: bool @ 4,
+        /// Mask the I_HARDSENT interrupt
+        pub m_hardsent: bool @ 3,
+        /// Mask the I_TXSENT interrupt
+        pub m_txsent: bool @ 2,
+        /// Mask the I_SOFTRST interrupt
+        pub m_softrst: bool @ 1,
+        /// Mask the I_HARDRST interrupt
+        pub m_hardrst: bool @ 0,
     }
 }
 
@@ -521,7 +548,8 @@ impl Default for MaskA {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct MaskB(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Mask the I_GCRCSENT interrupt
+        pub m_gcrcsent: bool @ 0,
     }
 }
 
@@ -534,7 +562,8 @@ impl Default for MaskB {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Control4(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// In auto Rd only Toggle mode, stop Toggle at Audio accessory (Ra on both CC)
+        pub tog_exit_aud: bool @ 0,
     }
 }
 
@@ -547,7 +576,25 @@ impl Default for Control4 {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Status0A(pub u8): Debug, FromRaw, IntoRaw {
+        /// All soft reset packets with retries have failed to get a GoodCRC acknowledge. This
+        /// status is cleared when a START_TX, TXON or SEND_HARD_RESET is executed
+        pub softfail: bool [read_only] @ 5,
 
+        /// All packet retries have failed to get a GoodCRC acknowledge. This status is cleared
+        /// when a START_TX, TXON or SEND_HARD_RESET is executed
+        pub retryfail: bool [read_only] @ 4,
+
+        /// Internal power state when logic internals needs to control the power state. POWER3
+        /// corresponds to PWR3 bit and POWER2 corresponds to PWR2 bit. The power state is the
+        /// higher of both PWR\[3:0\] and {POWER3, POWER2, PWR\[1:0\]} so that if one is 03 and the
+        /// other is F then the internal power state is F.
+        pub power: u8 [read_only] @ 2..=3,
+
+        /// One of the packets received was a soft reset packet
+        pub softrst: bool [read_only] @ 1,
+
+        /// Hard Reset PD ordered set has been received
+        pub hardrst: bool [read_only] @ 0,
     }
 }
 
@@ -560,7 +607,26 @@ impl Default for Status0A {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Status1A(pub u8): Debug, FromRaw, IntoRaw {
+        /// * `000`: Toggle logic running (processor has previously written TOGGLE=1)
+        /// * `001`: Toggle functionality has settled to SRCon CC1 (STOP_SRC1 state)
+        /// * `010`: Toggle functionality has settled to SRCon CC2 (STOP_SRC2 state)
+        /// * `101`: Toggle functionality has settled to SNKon CC1 (STOP_SNK1 state)
+        /// * `110`: Toggle functionality has settled to SNKon CC2 (STOP_SNK2 state)
+        /// * `111`: Toggle functionality has detected AudioAccessory with vRa on both CC1 and CC2
+        /// (settles to STOP_SRC1 state)
+        ///
+        /// Otherwise: Not defined (do not interpret)
+        pub togss: u8 [read_only] @ 3..=5,
 
+        /// Indicates the last packet placed in the RxFIFO is type SOP''_DEBUG (SOP double prime
+        /// debug)
+        pub rxsop2db: bool [read_only] @ 2,
+
+        /// Indicates the last packet placed in the RxFIFO is type SOP'_DEBUG (SOP prime debug)
+        pub rxsop1db: bool [read_only] @ 1,
+
+        /// Indicates the last packet placed in the RxFIFO is type SOP
+        pub rxsop: bool [read_only] @ 0,
     }
 }
 
@@ -573,7 +639,25 @@ impl Default for Status1A {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct InterruptA(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Interrupt from either a OCP event on one of the VCONN switches or an over-temperature
+        /// event
+        pub i_ocp_temp: bool @ 7,
+        /// Interrupt indicating the TOGGLE functionality was terminated because a device was
+        /// detected
+        pub i_togdone: bool @ 6,
+        /// Interrupt from automatic soft reset packets with retries have failed
+        pub i_softfail: bool @ 5,
+        /// Interrupt from automatic packet retries have failed
+        pub i_retryfail: bool @ 4,
+        /// Interrupt from successfully sending a hard reset ordered set
+        pub i_hardsent: bool @ 3,
+        /// Interrupt to alert that we sent a packet that was acknowledged with a GoodCRC response
+        /// packet
+        pub i_txsent: bool @ 2,
+        /// Received a soft reset packet
+        pub i_softrst: bool @ 1,
+        /// Received a hard reset ordered set
+        pub i_hardrst: bool @ 0,
     }
 }
 
@@ -586,7 +670,9 @@ impl Default for InterruptA {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct InterruptB(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Sent a GoodCRC acknowledge packet in response to an incoming packet that has the
+        /// correct CRC value
+        pub i_gcrcsent: bool @ 0,
     }
 }
 
@@ -599,7 +685,47 @@ impl Default for InterruptB {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Status0(pub u8): Debug, FromRaw, IntoRaw {
+        /// Interrupt occurs when VBUS transitions through vVBUSthr. This bit typically is used to
+        /// recognize port partner during startup
+        pub vbusok: bool [read_only] @ 7,
 
+        /// Transitions are detected on the active CC* line. This bit goes high after a minimum of
+        /// 3 CC transitions, and goes low with no Transitions
+        pub activity: bool [read_only] @ 6,
+
+        /// Measured CC* input is higher than reference level driven from the MDAC
+        pub comp: bool [read_only] @ 5,
+
+        /// Indicates the last received packet had the correct CRC. This bit remains set until the
+        /// SOP of the next packet
+        ///
+        /// If false, packet received for an enabled SOP* and CRC for the enabled packet received
+        /// was incorrect
+        pub crc_chk: bool [read_only] @ 4,
+
+        /// Alert software an error condition has occurred. An alert is caused by:
+        /// * TX_FULL: the transmit FIFO is full
+        /// * RX_FULL: the receive FIFO is full
+        ///
+        /// See Status1 bits
+        pub alert: bool [read_only] @ 3,
+
+        /// * `true`: Voltage on CC indicated a device attempting to attach
+        /// * `false`: WAKE either not enabled (WAKE_EN=0) or no device attached
+        pub wake: bool [read_only] @ 2,
+
+        /// Current voltage status of the measured CC pin interpreted as host current levels as
+        /// follows:
+        ///
+        /// * `00`: < 200 mV
+        /// * `01`: >200mV,<660mV
+        /// * `10`: >660mV,<1.23V
+        /// * `11`: > 1.23 V
+        ///
+        /// Note the software must measure these at an appropriate time, while there is no signaling
+        /// activity on the selected CC line. BC_LVL is only defined when Measure block is on which
+        /// is when register bits PWR[2]=1 and either MEAS_CC1=1 or MEAS_CC2=1
+        pub bc_lvl: u8 [read_only] @ 0..=1,
     }
 }
 
@@ -612,7 +738,22 @@ impl Default for Status0 {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Status1(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Indicates the last packet placed in the RxFIFO is type SOP'' (SOP double prime)
+        pub rxsop2: bool [read_only] @ 7,
+        /// Indicates the last packet placed in the RxFIFO is type SOP' (SOP prime)
+        pub rxsop1: bool [read_only] @ 6,
+        /// The receive FIFO is empty
+        pub rx_empty: bool [read_only] @ 5,
+        /// The receive FIFO is full
+        pub rx_full: bool [read_only] @ 4,
+        /// The transmit FIFO is empty
+        pub tx_empty: bool [read_only] @ 3,
+        /// The transmit FIFO is full
+        pub tx_full: bool [read_only] @ 2,
+        /// Temperature of the device is too high
+        pub overtemp: bool [read_only] @ 1,
+        /// Indicates an over-current or short condition has occurred on the VCONN switch
+        pub ocp: bool [read_only] @ 0,
     }
 }
 
@@ -625,7 +766,32 @@ impl Default for Status1 {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Interrupt(pub u8): Debug, FromRaw, IntoRaw {
+        /// Interrupt occurs when VBUS transitions through 4.5 V. This bit typically is used to recognize port partner during startup
+        pub i_vbusok: bool @ 7,
 
+        /// A change in the value of ACTIVITY of the CC bus has oc- curred
+        pub i_activity: bool @ 6,
+
+        /// A change in the value of COMP has occurred. Indicates se- lected CC line has tripped a threshold programmed into the MDAC
+        pub i_comp_chng: bool @ 5,
+
+        /// The value of CRC_CHK newly valid. I.e. The validity of the incoming packet has been checked
+        pub i_crc_chk: bool @ 4,
+
+        /// Alert software an error condition has occurred. An alert is caused by:
+        ///
+        /// * TX_FULL: the transmit FIFO is full
+        /// * RX_FULL: the receive FIFO is full See Status1 bits
+        pub i_alert: bool @ 3,
+
+        /// Voltage on CC indicated a device attempting to attach. Software must then power up the clock and receiver blocks
+        pub i_wake: bool @ 2,
+
+        /// When a transmit was attempted, activity was detected on the active CC line. Transmit is not done. The packet is received normally
+        pub i_collision: bool @ 1,
+
+        /// A change in host requested current level has occurred
+        pub i_bc_lvl: bool @ 0,
     }
 }
 
@@ -638,7 +804,9 @@ impl Default for Interrupt {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Fifo(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Writing to this register writes a byte into the transmit FIFO. Reading from this register reads from the receive FIFO.
+        /// Each byte is a coded token. Or a token followed by a fixed number of packed data byte (see token coding in Table 41)
+        pub token: u8 @ 0..7,
     }
 }
 
