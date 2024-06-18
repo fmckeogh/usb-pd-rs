@@ -1,6 +1,6 @@
 use {
     crate::{
-        header::{DataMessageType, Header, SpecificationRevision},
+        header::{ControlMessageType, DataMessageType, Header, SpecificationRevision},
         messages::{
             pdo::{FixedVariableRequestDataObject, PPSRequestDataObject, SourceCapabilities},
             vdo::{
@@ -293,20 +293,26 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     }
 
     fn handle_msg(&mut self, message: Message) -> Option<Event> {
+        use ControlMessageType::*;
         match message {
-            Message::Accept => Some(Event::PowerAccepted),
-            Message::Reject => {
+            Message::Control(Accept) => Some(Event::PowerAccepted),
+            Message::Control(Reject) => {
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
                 Some(Event::PowerRejected)
             }
-            Message::Ready => {
+            Message::Control(PsRdy) => {
                 self.active_voltage = self.requested_voltage;
                 self.active_max_current = self.requested_max_current;
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
                 Some(Event::PowerReady)
             }
+            Message::Control(SoftReset) => {
+                warn!("UNHANDLED: Soft RESET request.");
+                None
+            }
+            Message::Control(_) => None,
             Message::SourceCapabilities(caps) => Some(Event::SourceCapabilitiesChanged(caps)),
             Message::VendorDefined((hdr, data)) => {
                 match hdr {
@@ -328,10 +334,6 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                     }
                 }
                 Some(Event::VDMReceived((hdr, data)))
-            }
-            Message::SoftReset => {
-                warn!("UNHANDLED: Soft RESET request.");
-                None
             }
             Message::Request(_) => None,
             Message::Unknown => unimplemented!(),

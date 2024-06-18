@@ -1,4 +1,5 @@
 #![no_std]
+use defmt::Format;
 
 #[macro_use]
 extern crate uom;
@@ -10,7 +11,7 @@ pub mod source;
 pub mod timers;
 pub mod token;
 
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Format)]
 pub enum CcPin {
     CC1,
     CC2,
@@ -27,7 +28,7 @@ impl core::ops::Not for CcPin {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Format)]
 pub enum PowerRole {
     Source,
     Sink,
@@ -51,7 +52,7 @@ impl From<PowerRole> for bool {
     }
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Format)]
 pub enum DataRole {
     Ufp,
     Dfp,
