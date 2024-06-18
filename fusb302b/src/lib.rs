@@ -163,32 +163,37 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
                 .with_receiver(true),
         );
 
-        let payload_len = header.num_objects() * 4;
+        assert_eq!(header.num_objects() * 4, payload.len());
 
         header.set_message_id(self.message_id.next());
 
         let mut buf = [0u8; 40];
 
-        // Create token stream
-        buf[0] = Register::Fifo as u8;
-        buf[1] = Token::Sop1 as u8;
-        buf[2] = Token::Sop1 as u8;
-        buf[3] = Token::Sop1 as u8;
-        buf[4] = Token::Sop2 as u8;
-        buf[5] = Token::PackSym as u8 | (payload_len + 2) as u8;
-        header.to_bytes(&mut buf[6..=7]);
-        buf[8..(payload.len() + 8)].copy_from_slice(payload);
-        let mut n = 8 + payload_len;
-        buf[n] = Token::JamCrc as u8;
-        n += 1;
-        buf[n] = Token::Eop as u8;
-        n += 1;
-        buf[n] = Token::TxOff as u8;
-        n += 1;
-        buf[n] = Token::TxOn as u8;
-        n += 1;
+        // preamble
+        buf[0..=5].copy_from_slice(&[
+            Register::Fifo as u8,
+            Token::Sop1 as u8,
+            Token::Sop1 as u8,
+            Token::Sop1 as u8,
+            Token::Sop2 as u8,
+            Token::PackSym as u8 | (payload.len() + 2) as u8,
+        ]);
 
-        self.registers.write_raw(&mut buf[..n]);
+        // header
+        header.to_bytes(&mut buf[6..=7]);
+
+        // payload
+        buf[8..(payload.len() + 8)].copy_from_slice(payload);
+
+        // end
+        buf[8 + payload.len()..12 + payload.len()].copy_from_slice(&[
+            Token::JamCrc as u8,
+            Token::Eop as u8,
+            Token::TxOff as u8,
+            Token::TxOn as u8,
+        ]);
+
+        self.registers.write_raw(&mut buf[..12 + payload.len()]);
 
         self.message_id.inc();
     }
