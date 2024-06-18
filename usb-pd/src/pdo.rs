@@ -451,7 +451,7 @@ impl VDMIdentityHeader {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Format, Debug)]
 pub enum SOPProductTypeUFP {
     NotUFP,
     PDUSBHub,
@@ -484,7 +484,7 @@ impl From<u8> for SOPProductTypeUFP {
     }
 }
 
-#[derive(Clone, Copy, Format)]
+#[derive(Clone, Copy, Format, Debug)]
 pub enum SOPProductTypeDFP {
     NotDFP,
     PDUSBHub,
@@ -517,6 +517,7 @@ impl From<u8> for SOPProductTypeDFP {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectorType {
     USBTypeCReceptacle,
     USBTypeCPlug,
