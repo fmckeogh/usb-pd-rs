@@ -1,0 +1,53 @@
+on:
+  workflow_run:
+    workflows: ["Build"]
+    branches: [main]
+    types:
+      - completed
+  workflow_dispatch:
+
+name: Docs
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+          target: thumbv6m-none-eabi
+
+      - name: Cache artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo doc
+        uses: actions-rs/cargo@v1
+        with:
+          command: doc
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: ./target/thumbv6m-none-eabi/doc
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v2
