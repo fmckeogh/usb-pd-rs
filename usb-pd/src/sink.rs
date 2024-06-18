@@ -166,8 +166,8 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 // Create PPS request data object
                 let pps = PPSRequestDataObject(0)
                     .with_object_position(obj_pos as u8)
-                    .with_operating_current(current / 50) // Convert current from millis to 50ma units
-                    .with_output_voltage(voltage / 20) // Convert voltage from millis to 20mv units
+                    .with_raw_operating_current(current / 50) // Convert current from millis to 50ma units
+                    .with_raw_output_voltage(voltage / 20) // Convert voltage from millis to 20mv units
                     .with_capability_mismatch(false)
                     .with_epr_mode_capable(false)
                     .with_usb_communications_capable(true);
@@ -364,8 +364,8 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         assert!(obj_pos > 0b0000 && obj_pos <= 0b1110);
 
         FixedVariableRequestDataObject(0)
-            .with_operating_current(current)
-            .with_max_operating_current(current)
+            .with_raw_operating_current(current)
+            .with_raw_max_operating_current(current)
             .with_object_position(obj_pos)
             .with_no_usb_suspend(true)
             .with_usb_communications_capable(true)
