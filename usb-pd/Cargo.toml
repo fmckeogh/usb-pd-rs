@@ -9,6 +9,10 @@ homepage = "https://github.com/fmckeogh/usb-pd-rs"
 license = "MIT"
 keywords = ["nostd", "usb-pd", "power", "embedded"]
 
+[lib]
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+test = false
+
 [dependencies]
 proc-bitfield = "0.4.0"
 byteorder = { version = "1.5.0", default-features = false }
