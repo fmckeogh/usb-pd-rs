@@ -13,7 +13,7 @@ use {
     heapless::Vec,
 };
 
-#[derive(Clone, Format)]
+#[derive(Debug, Clone, Format)]
 pub enum Message {
     Accept,
     Reject,
