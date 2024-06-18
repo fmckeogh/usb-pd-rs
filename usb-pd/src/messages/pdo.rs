@@ -43,9 +43,19 @@ bitfield! {
         /// Peak current
         pub peak_current: u8 @ 20..=21,
         /// Voltage in 50mV units
-        pub voltage: u16 @ 10..=19,
+        pub raw_voltage: u16 @ 10..=19,
         /// Maximum current in 10mA units
-        pub max_current: u16 @ 0..=9,
+        pub raw_max_current: u16 @ 0..=9,
+    }
+}
+
+impl FixedSupply {
+    pub fn voltage_mv(&self) -> u16 {
+        self.raw_voltage() * 50
+    }
+
+    pub fn max_current_ma(&self) -> u16 {
+        self.raw_max_current() * 10
     }
 }
 
@@ -55,11 +65,25 @@ bitfield! {
         /// Battery
         pub kind: u8 @ 30..=31,
         /// Maximum Voltage in 50mV units
-        pub max_voltage: u16 @ 20..=29,
+        pub raw_max_voltage: u16 @ 20..=29,
         /// Minimum Voltage in 50mV units
-        pub min_voltage: u16 @ 10..=19,
+        pub raw_min_voltage: u16 @ 10..=19,
         /// Maximum Allowable Power in 250mW units
-        pub max_power: u16 @ 0..=9,
+        pub raw_max_power: u16 @ 0..=9,
+    }
+}
+
+impl Battery {
+    pub fn max_voltage_mv(&self) -> u16 {
+        u16::from(self.raw_max_voltage()) * 50
+    }
+
+    pub fn min_voltage_mv(&self) -> u16 {
+        u16::from(self.raw_min_voltage()) * 50
+    }
+
+    pub fn max_power_mw(&self) -> u32 {
+        u32::from(self.raw_max_power()) * 250
     }
 }
 
@@ -69,11 +93,25 @@ bitfield! {
         /// Variable supply (non-battery)
         pub kind: u8 @ 30..=31,
         /// Maximum Voltage in 50mV units
-        pub max_voltage: u16 @ 20..=29,
+        pub raw_max_voltage: u16 @ 20..=29,
         /// Minimum Voltage in 50mV units
-        pub min_voltage: u16 @ 10..=19,
+        pub raw_min_voltage: u16 @ 10..=19,
         /// Maximum current in 10mA units
-        pub max_current: u16 @ 0..=9,
+        pub raw_max_current: u16 @ 0..=9,
+    }
+}
+
+impl VariableSupply {
+    pub fn max_voltage_mv(&self) -> u16 {
+        u16::from(self.raw_max_voltage()) * 50
+    }
+
+    pub fn min_voltage_mv(&self) -> u16 {
+        u16::from(self.raw_min_voltage()) * 50
+    }
+
+    pub fn max_current_ma(&self) -> u16 {
+        u16::from(self.raw_max_current()) * 10
     }
 }
 
@@ -103,11 +141,25 @@ bitfield! {
         pub supply: u8 @ 28..=29,
         pub pps_power_limited: bool @ 27,
         /// Maximum voltage in 100mV increments
-        pub max_voltage: u8 @ 17..=24,
+        pub raw_max_voltage: u8 @ 17..=24,
         /// Minimum Voltage in 100mV increments
-        pub min_voltage: u8 @ 8..=15,
+        pub raw_min_voltage: u8 @ 8..=15,
         /// Maximum Current in 50mA increments
-        pub maximum_current: u8 @ 0..=6,
+        pub raw_max_current: u8 @ 0..=6,
+    }
+}
+
+impl SPRProgrammablePowerSupply {
+    pub fn max_voltage_mv(&self) -> u16 {
+        u16::from(self.raw_max_voltage()) * 100
+    }
+
+    pub fn min_voltage_mv(&self) -> u16 {
+        u16::from(self.raw_min_voltage()) * 100
+    }
+
+    pub fn max_current_ma(&self) -> u16 {
+        u16::from(self.raw_max_current()) * 50
     }
 }
 
@@ -120,11 +172,21 @@ bitfield! {
         pub supply: u8 @ 28..=29,
         pub peak_current: u8 @ 26..=27,
         /// Maximum voltage in 100mV increments
-        pub max_voltage: u16 @ 17..=25,
+        pub raw_max_voltage: u16 @ 17..=25,
         /// Minimum Voltage in 100mV increments
-        pub min_voltage: u8 @ 8..=15,
+        pub raw_min_voltage: u8 @ 8..=15,
         /// PDP in 1W increments
-        pub maximum_current: u8 @ 0..=7,
+        pub pd_power: u8 @ 0..=7,
+    }
+}
+
+impl EPRAdjustableVoltageSupply {
+    pub fn max_voltage_mv(&self) -> u16 {
+        u16::from(self.raw_max_voltage()) * 100
+    }
+
+    pub fn min_voltage_mv(&self) -> u16 {
+        u16::from(self.raw_min_voltage()) * 100
     }
 }
 
@@ -140,7 +202,7 @@ bitfield! {
         pub unchunked_extended_messages_supported: bool @ 23,
         pub epr_mode_capable: bool @ 22,
         pub operating_current: u16 @ 10..=19,
-        pub maximum_operating_current: u16 @ 0..=9,
+        pub max_operating_current: u16 @ 0..=9,
     }
 }
 
@@ -170,7 +232,7 @@ bitfield! {
         /// Operating power in 250mW units
         pub operating_power: u16 @ 10..=19,
         /// Maximum operating power in 250mW units
-        pub maximum_operating_power: u16 @ 0..=9,
+        pub max_operating_power: u16 @ 0..=9,
     }
 }
 
