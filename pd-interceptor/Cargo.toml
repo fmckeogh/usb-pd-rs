@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
+name = "pd-interceptor"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
 test = false
 
