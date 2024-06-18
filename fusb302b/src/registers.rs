@@ -4,7 +4,7 @@
 
 use {
     crate::DEVICE_ADDRESS,
-    defmt::{trace, Format},
+    defmt::Format,
     embedded_hal::blocking::i2c::{Write, WriteRead},
     proc_bitfield::bitfield,
     usb_pd::{DataRole, PowerRole},

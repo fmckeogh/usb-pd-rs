@@ -59,6 +59,17 @@ impl From<DataRole> for bool {
     }
 }
 
-pub trait SinkDriver {}
+pub struct Event;
+pub struct Message;
+
+pub trait SinkDriver {
+    fn init() -> Self;
+
+    fn poll(&mut self);
+
+    fn get_event(&mut self) -> Option<Event>;
+
+    fn send_message(&mut self, message: Message);
+}
 
 pub trait SourceDriver {}
