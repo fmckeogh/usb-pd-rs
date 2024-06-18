@@ -1,5 +1,7 @@
 #![no_std]
 
+use core::ops::Not;
+
 pub mod callback;
 pub mod header;
 pub mod message;
@@ -15,6 +17,17 @@ pub type Duration = fugit::Duration<u64, 1, 1000>;
 pub enum CcPin {
     CC1,
     CC2,
+}
+
+impl Not for CcPin {
+    type Output = CcPin;
+
+    fn not(self) -> Self::Output {
+        match self {
+            CcPin::CC1 => CcPin::CC2,
+            CcPin::CC2 => CcPin::CC1,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
