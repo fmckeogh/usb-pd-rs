@@ -1,5 +1,3 @@
-use defmt::trace;
-
 use {
     crate::{
         header::{ControlMessageType, DataMessageType, Header, MessageType},
@@ -11,7 +9,7 @@ use {
         },
     },
     byteorder::{ByteOrder, LittleEndian},
-    defmt::{warn, Format},
+    defmt::{trace, warn, Format},
     heapless::Vec,
 };
 
@@ -74,8 +72,9 @@ impl Message {
                 };
 
                 trace!("VDM RX: {:?}", header);
-                // trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(), header.vdm_version());
-                // trace!("HEADER: CMD:: TYPE: {:?}, CMD: {:?}", header.command_type(), header.command());
+                // trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(),
+                // header.vdm_version()); trace!("HEADER: CMD:: TYPE: {:?}, CMD:
+                // {:?}", header.command_type(), header.command());
 
                 // Keep for now...
                 // let pkt = payload
