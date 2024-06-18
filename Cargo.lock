@@ -85,24 +85,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bef38d45163c2f1dde094a7dfd33ccf595c92905c8f8f4fdc18d06fb1037718a"
 
 [[package]]
-name = "bridge"
-version = "0.1.0"
-dependencies = [
- "bitbang-hal",
- "cortex-m 0.7.7",
- "cortex-m-rt",
- "cortex-m-rtic",
- "defmt",
- "defmt-rtt",
- "embedded-hal",
- "fixed-queue",
- "fusb302b",
- "stm32f0xx-hal",
- "systick-monotonic",
- "usb-pd",
-]
-
-[[package]]
 name = "bxcan"
 version = "0.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -673,4 +655,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9ee8f19f9d74293faf70901bc20ad067dc1ad390d2cbf1e3f75f721ffee908b6"
 dependencies = [
  "vcell",
+]
+
+[[package]]
+name = "zy12pdn"
+version = "0.1.0"
+dependencies = [
+ "bitbang-hal",
+ "cortex-m 0.7.7",
+ "cortex-m-rt",
+ "cortex-m-rtic",
+ "defmt",
+ "defmt-rtt",
+ "embedded-hal",
+ "fixed-queue",
+ "fusb302b",
+ "stm32f0xx-hal",
+ "systick-monotonic",
+ "usb-pd",
 ]
