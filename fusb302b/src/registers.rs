@@ -1,6 +1,7 @@
 //! FUSB302B registers
 //!
-//! Setters/getters/clearers generated using macros, `Default` for each register is its reset value.
+//! Setters/getters/clearers generated using macros, `Default` for each register
+//! is its reset value.
 
 use {
     crate::DEVICE_ADDRESS,

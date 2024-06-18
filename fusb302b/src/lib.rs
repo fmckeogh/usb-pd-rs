@@ -33,24 +33,23 @@ pub struct Fusb302b<I2C> {
     /// Driver timeout logic
     timeout: Timeout,
 
-    /// Queue of event that have occurred
+    /// Queue of events that have occurred to be retrieved by USB-PD library
     events: Queue<DriverEvent, 4>,
 
     /// Current driver state
     state: State,
-
-    /// ID for next USB PD message
-    message_id: MessageIdCounter,
 }
 
-#[derive(PartialEq)]
 enum State {
     Measuring {
         /// CC line being measured
         cc_pin: CcPin,
     },
     Ready,
-    Connected,
+    Connected {
+        /// ID for next USB PD message
+        message_id: MessageIdCounter,
+    },
     RetryWait,
 }
 
@@ -59,7 +58,7 @@ impl From<&State> for DriverState {
         match value {
             State::Measuring { .. } => DriverState::Usb20,
             State::Ready => DriverState::UsbPdWait,
-            State::Connected => DriverState::UsbPd,
+            State::Connected { .. } => DriverState::UsbPd,
             State::RetryWait => DriverState::UsbRetryWait,
         }
     }
@@ -116,7 +115,6 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         self.registers
             .set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
-        self.message_id = MessageIdCounter::default();
         self.state = State::Measuring { cc_pin: CcPin::CC1 };
         while self.events.dequeue().is_some() {}
 
@@ -140,7 +138,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
                     self.establish_retry_wait();
                 }
             }
-            State::Connected => (),
+            State::Connected { .. } => (),
             State::RetryWait => {
                 if self.timeout.is_expired() {
                     self.establish_usb_20();
@@ -154,6 +152,10 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
     }
 
     fn send_message(&mut self, mut header: Header, payload: &[u8]) {
+        let State::Connected { message_id } = &mut self.state else {
+            panic!();
+        };
+
         // Enable internal oscillator
         self.registers.set_power(
             Power::default()
@@ -165,7 +167,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 
         assert_eq!(header.num_objects() * 4, payload.len());
 
-        header.set_message_id(self.message_id.next());
+        header.set_message_id(message_id.next());
 
         let mut buf = [0u8; 40];
 
@@ -195,7 +197,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 
         self.registers.write_raw(&mut buf[..12 + payload.len()]);
 
-        self.message_id.inc();
+        message_id.inc();
     }
 
     fn state(&mut self) -> DriverState {
@@ -210,7 +212,6 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             timeout: Timeout::new(),
             events: Queue::new(),
             state: State::Measuring { cc_pin: CcPin::CC1 },
-            message_id: MessageIdCounter::default(),
         }
     }
 
@@ -312,7 +313,8 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             {
                 debug!("Good CRC packet");
             } else {
-                if self.state != State::Connected {
+                if let State::Connected { .. } = self.state {
+                } else {
                     self.establish_usb_pd();
                 }
                 let message = Message::parse(Header(header), &payload[..]);
@@ -396,7 +398,9 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     }
 
     fn establish_usb_pd(&mut self) {
-        self.state = State::Connected;
+        self.state = State::Connected {
+            message_id: MessageIdCounter::default(),
+        };
         self.timeout.cancel();
         debug!("USB PD comm");
         self.events.enqueue(DriverEvent::StateChanged).ok();
