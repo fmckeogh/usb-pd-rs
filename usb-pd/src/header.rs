@@ -9,7 +9,7 @@ bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Header(pub u16): FromRaw, IntoRaw {
         pub extended: bool @ 15,
-        pub num_objects: u8 @ 12..=14,
+        pub num_objects: u8 [get usize] @ 12..=14,
         pub message_id: u8 @ 9..=11,
         pub port_power_role: bool [get PowerRole, set PowerRole] @ 8,
         pub spec_revision: u8 [get SpecificationRevision, set SpecificationRevision] @ 6..=7,
