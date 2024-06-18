@@ -30,10 +30,10 @@ type Duration = fugit::Duration<u64, 1, 1000>;
 const DEVICE_ADDRESS: u8 = 0b0100010;
 
 /// FUSB302B Programmable USB Type‐C Controller w/PD
-pub struct Fusb302b<I2C, F> {
+pub struct Fusb302b<I2C> {
     registers: Registers<I2C>,
     state: State,
-    callback: F,
+    callback: callback::Function,
 }
 
 /// Current state of the FUSB302B
@@ -63,8 +63,8 @@ enum Event {
     MessageReceived(Message),
 }
 
-impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2C, F> {
-    pub fn new(i2c: I2C, callback: F) -> Self {
+impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
+    pub fn new(i2c: I2C, callback: callback::Function) -> Self {
         Self {
             registers: Registers::new(i2c),
             state: State::initial(),
@@ -121,7 +121,7 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
                         },
                         _ => todo!(),
                     };
-                    self.notify_callback(callback_event);
+                    self.process_callback(callback_event);
                 }
             }
         }
@@ -221,7 +221,7 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
         self.state = State::RetryWait {
             timeout: Timeout::new_start(now, 500.millis()),
         };
-        self.notify_callback(callback::Event::ProtocolChanged {
+        self.process_callback(callback::Event::ProtocolChanged {
             protocol: callback::Protocol::_20,
         });
     }
@@ -230,7 +230,7 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
         self.state = State::Connected {
             events: VecDeque::new(),
         };
-        self.notify_callback(callback::Event::ProtocolChanged {
+        self.process_callback(callback::Event::ProtocolChanged {
             protocol: callback::Protocol::PD,
         });
     }
@@ -349,7 +349,8 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
         }
     }
 
-    fn notify_callback(&mut self, event: callback::Event) {
-        (self.callback)(event)
+    fn process_callback(&mut self, event: callback::Event) {
+        let resp = (self.callback)(event);
+        trace!("resp: {:?}", resp);
     }
 }

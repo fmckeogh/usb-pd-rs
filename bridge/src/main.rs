@@ -5,7 +5,7 @@ use {
     core::cmp::max,
     defmt::{error, trace},
     defmt_rtt as _,
-    fusb302b::callback::Event,
+    fusb302b::callback::{Event, Response},
     rtic::app,
     usb_pd::pdo::PowerDataObject,
 };
@@ -21,7 +21,7 @@ mod app {
         },
         bitbang_hal::i2c::I2cBB,
         defmt::info,
-        fusb302b::{callback::Event, Fusb302b},
+        fusb302b::Fusb302b,
         stm32f0xx_hal::{
             gpio::{
                 gpioa::{self, PA10, PA5, PA6, PA7, PA9},
@@ -40,10 +40,7 @@ mod app {
     #[local]
     struct Local {
         led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
-        pd: Fusb302b<
-            I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>,
-            fn(Event) -> (),
-        >,
+        pd: Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>,
     }
 
     #[monotonic(binds = SysTick, default = true)]
@@ -82,7 +79,7 @@ mod app {
             let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
             let i2c = I2cBB::new(scl, sda, clk);
 
-            Fusb302b::new(i2c, callback as fn(_) -> ())
+            Fusb302b::new(i2c, &callback)
         };
 
         pd.init(monotonics::now());
@@ -100,18 +97,18 @@ mod app {
     }
 }
 
-fn callback(event: Event) {
+fn callback(event: Event) -> Option<Response> {
     match event {
         Event::ProtocolChanged { .. } => trace!("protocol changed"),
-
         Event::PowerAccepted => trace!("power accepted"),
         Event::PowerRejected => trace!("power rejected"),
         Event::PowerReady { active_voltage_mv } => trace!("power ready {}mV", active_voltage_mv),
+
         Event::SourceCapabilities {
             source_capabilities,
         } => {
-            let mut highest_voltage = 0;
-            let mut highest_current = 0;
+            let mut voltage = 0;
+            let mut current = 0;
 
             for cap in source_capabilities.into_iter().filter(Option::is_some) {
                 match cap.unwrap() {
@@ -120,8 +117,8 @@ fn callback(event: Event) {
                     }
                     PowerDataObject::FixedSupply(fixed) => {
                         trace!("fixed: {}", fixed.voltage());
-                        highest_voltage = max(highest_voltage, fixed.voltage());
-                        highest_current = max(highest_current, fixed.max_current());
+                        voltage = max(voltage, fixed.voltage());
+                        current = max(current, fixed.max_current());
                     }
                     PowerDataObject::VariableSupply(variable) => {
                         trace!("variable: {}", variable.max_voltage())
@@ -131,8 +128,12 @@ fn callback(event: Event) {
                     }
                 }
             }
+
+            return Some(Response::Request { voltage, current });
         }
     }
+
+    None
 }
 
 #[panic_handler]
