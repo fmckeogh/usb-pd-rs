@@ -2,7 +2,6 @@
 #![no_std]
 
 use {
-    core::cmp::max,
     defmt::{error, trace},
     defmt_rtt as _,
     fusb302b::callback::{Event, Response},
@@ -98,9 +97,17 @@ mod app {
 }
 
 fn callback(event: Event) -> Option<Response> {
+    static mut IS_CONNECTED: bool = false;
+
     match event {
-        Event::ProtocolChanged { .. } => trace!("protocol changed"),
-        Event::PowerAccepted => trace!("power accepted"),
+        Event::ProtocolChanged { .. } => {
+            trace!("protocol changed");
+            unsafe { IS_CONNECTED = false };
+        }
+        Event::PowerAccepted => {
+            trace!("power accepted");
+            unsafe { IS_CONNECTED = true };
+        }
         Event::PowerRejected => trace!("power rejected"),
         Event::PowerReady { active_voltage_mv } => trace!("power ready {}mV", active_voltage_mv),
 
@@ -109,16 +116,24 @@ fn callback(event: Event) -> Option<Response> {
         } => {
             let mut voltage = 0;
             let mut current = 0;
+            let mut index = 0;
 
-            for cap in source_capabilities.into_iter().filter(Option::is_some) {
+            for (i, cap) in source_capabilities
+                .into_iter()
+                .filter(Option::is_some)
+                .enumerate()
+            {
                 match cap.unwrap() {
                     PowerDataObject::Battery(battery) => {
                         trace!("battery: {}", battery.max_voltage())
                     }
                     PowerDataObject::FixedSupply(fixed) => {
-                        trace!("fixed: {}", fixed.voltage());
-                        voltage = max(voltage, fixed.voltage());
-                        current = max(current, fixed.max_current());
+                        trace!("fixed: {} {}", fixed.voltage(), fixed.max_current());
+                        if fixed.voltage() > voltage {
+                            index = i;
+                            voltage = fixed.voltage();
+                            current = fixed.max_current();
+                        }
                     }
                     PowerDataObject::VariableSupply(variable) => {
                         trace!("variable: {}", variable.max_voltage())
@@ -129,7 +144,7 @@ fn callback(event: Event) -> Option<Response> {
                 }
             }
 
-            return Some(Response::Request { voltage, current });
+            return Some(Response::Request { index, current });
         }
     }
 

@@ -3,6 +3,7 @@
 pub mod header;
 pub mod message;
 pub mod pdo;
+pub mod token;
 
 #[derive(Clone, Copy)]
 pub enum CcPin {

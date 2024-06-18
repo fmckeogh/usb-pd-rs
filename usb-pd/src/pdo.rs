@@ -120,3 +120,18 @@ bitfield! {
         pub maximum_current: u8 @ 0..=7,
     }
 }
+
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct FixedVariableRequestDataObject(pub u32): FromRaw, IntoRaw {
+        pub object_position: u8 @ 28..=31,
+        pub giveback_flag: bool @ 27,
+        pub capability_mismatch: bool @ 26,
+        pub usb_communications_capable: bool @ 25,
+        pub no_usb_suspend: bool @ 24,
+        pub unchunked_extended_messages_supported: bool @ 23,
+        pub epr_mode_capable: bool @ 22,
+        pub operating_current: u16 @ 10..=19,
+        pub maximum_operating_current: u16 @ 0..=9,
+    }
+}

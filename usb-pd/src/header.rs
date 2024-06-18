@@ -10,9 +10,9 @@ bitfield! {
         pub extended: bool @ 15,
         pub num_objects: u8 @ 12..=14,
         pub message_id: u8 @ 9..=11,
-        pub port_power_role: bool [get PowerRole] @ 8,
-        pub spec_revision: u8 [get SpecificationRevision] @ 6..=7,
-        pub port_data_role: bool [get DataRole] @ 5,
+        pub port_power_role: bool [get PowerRole, set PowerRole] @ 8,
+        pub spec_revision: u8 [get SpecificationRevision, set SpecificationRevision] @ 6..=7,
+        pub port_data_role: bool [get DataRole, set DataRole] @ 5,
         pub message_type_raw: u8 @ 0..4,
     }
 }
