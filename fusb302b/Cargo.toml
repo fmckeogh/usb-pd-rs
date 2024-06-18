@@ -4,7 +4,6 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-bbqueue = { version = "0.5.1", features = ["thumbv6"] }
 byteorder = { version = "1.4.3", default-features = false }
 embedded-hal = "0.2.7"
 fixed-queue = "0.5.1"
