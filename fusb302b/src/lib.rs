@@ -1,14 +1,18 @@
 #![no_std]
 
 pub mod registers;
+mod timeout;
 
 /// I2C address of FUSB302BMPX
 const DEVICE_ADDRESS: u8 = 0b0100010;
 
 use {
-    crate::registers::{
-        Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
-        Switches0, Switches1,
+    crate::{
+        registers::{
+            Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
+            Switches0, Switches1,
+        },
+        timeout::Timeout,
     },
     defmt::{debug, warn},
     embedded_hal::blocking::i2c::{Write, WriteRead},
@@ -17,7 +21,7 @@ use {
         header::{ControlMessageType, Header, MessageType},
         sink::{Driver as SinkDriver, Event, EventKind, State},
         token::Token,
-        Instant,
+        Duration, Instant,
     },
 };
 
@@ -25,13 +29,11 @@ const NUM_MESSAGE_BUF: usize = 4;
 
 pub struct Fusb302b<I2C> {
     i2c: Registers<I2C>,
+
     /// cc line being measured
     measuring_cc: u8,
 
-    /// Indicates if the timeout timer is running
-    is_timeout_active: bool,
-    /// Time when the current timer expires
-    timeout_expiration: u32,
+    timeout: Timeout,
 
     /// RX message buffers
     rx_message_buf: [[u8; 64]; 4],
@@ -47,8 +49,6 @@ pub struct Fusb302b<I2C> {
 
     /// ID for next USB PD message
     next_message_id: u8,
-
-    timestamp: u32,
 }
 
 impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
@@ -100,7 +100,6 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         self.i2c.set_mask_b(MaskB::default().with_m_gcrcsent(true));
 
         self.next_message_id = 0;
-        self.is_timeout_active = false;
         self.state_ = State::Usb20;
         self.events.clear();
 
@@ -108,12 +107,13 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
     }
 
     fn poll(&mut self, now: Instant) {
-        self.timestamp = now.ticks() as u32;
+        self.timeout.update(now);
+
         self.check_for_interrupts();
 
-        if self.has_timeout_expired() {
+        if self.timeout.is_expired() {
             if self.state_ == State::UsbPdWait {
-                debug!("{}: No CC activity", self.timestamp);
+                debug!("Timeout expired, no CC activity");
                 self.establish_retry_wait();
             } else if self.state_ == State::Usb20 {
                 self.check_measurement();
@@ -183,14 +183,12 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         Self {
             i2c: Registers::new(i2c),
             measuring_cc: 0,
-            is_timeout_active: false,
-            timeout_expiration: 0,
+            timeout: Timeout::new(),
             rx_message_buf: [[0u8; 64]; 4],
             rx_message_index: 0,
             events: VecDeque::new(),
             state_: State::Usb20,
             next_message_id: 0,
-            timestamp: 0,
         }
     }
 
@@ -217,7 +215,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
         // test CC
         self.i2c.set_switches0(switches0);
-        self.start_timeout(10);
+        self.timeout.start(Duration::millis(10));
         self.measuring_cc = cc;
     }
 
@@ -241,7 +239,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         let interruptb = self.i2c.interruptb();
 
         if interrupta.i_hardrst() {
-            debug!("{}: Hard reset\r\n", self.timestamp);
+            debug!("Hard reset");
             self.establish_retry_wait();
             return;
         }
@@ -260,7 +258,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             may_have_message = true;
         }
         if interrupt.i_crc_chk() {
-            debug!("{}: CRC ok", self.timestamp);
+            debug!("CRC ok");
             may_have_message = true;
         }
         if interruptb.i_gcrcsent() {
@@ -314,7 +312,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // Reset FUSB302
         self.init();
         self.state_ = State::UsbRetryWait;
-        self.start_timeout(500);
+        self.timeout.start(Duration::millis(500));
         self.events
             .push_front(Event {
                 kind: EventKind::StateChanged,
@@ -382,12 +380,12 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.i2c.set_switches1(switches1);
 
         self.state_ = State::UsbPdWait;
-        self.start_timeout(300);
+        self.timeout.start(Duration::millis(300u64))
     }
 
     fn establish_usb_pd(&mut self) {
         self.state_ = State::UsbPd;
-        self.cancel_timeout();
+        self.timeout.cancel();
         debug!("USB PD comm");
         self.events
             .push_front(Event {
@@ -396,29 +394,6 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 msg_payload: &0u8 as *const u8,
             })
             .ok();
-    }
-
-    fn start_timeout(&mut self, ms: u32) {
-        self.is_timeout_active = true;
-        self.timeout_expiration = self.timestamp + ms;
-    }
-
-    fn has_timeout_expired(&mut self) -> bool {
-        if !self.is_timeout_active {
-            return false;
-        }
-
-        let delta = self.timeout_expiration - self.timestamp;
-        if delta <= 0x8000000 {
-            return false;
-        }
-
-        self.is_timeout_active = false;
-        return true;
-    }
-
-    fn cancel_timeout(&mut self) {
-        self.is_timeout_active = false;
     }
 
     fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) -> usize {
