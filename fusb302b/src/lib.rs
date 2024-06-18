@@ -5,6 +5,9 @@ use {
     core::ptr::copy_nonoverlapping,
     defmt::{debug, trace},
     embedded_hal::blocking::i2c::{Write, WriteRead},
+    usb_pd::header::{
+        ControlMessageType, DataMessageType, Header, MessageType, SpecificationRevision,
+    },
 };
 
 mod fsusb302;
@@ -87,7 +90,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             match evt.kind {
                 event_kind::state_changed => {
                     if self.update_protocol() {
-                        self.notify(CallbackEvent::protocol_changed);
+                        self.notify(CallbackEvent::ProtocolChanged);
                     }
                 }
                 event_kind::message_received => {
@@ -113,28 +116,26 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     }
 
     fn handle_msg(&mut self, header: u16, payload: *const u8) {
-        let _spec_rev = PdHeader(header).spec_rev();
-
-        let msg_type = PdHeader(header).message_type();
+        let msg_type = Header(header).message_type();
 
         match msg_type {
-            pd_msg_type::pd_msg_type_data_source_capabilities => {
+            MessageType::Data(DataMessageType::SourceCapabilities) => {
                 self.handle_src_cap_msg(header, payload);
             }
-            pd_msg_type::pd_msg_type_ctrl_accept => {
-                self.notify(CallbackEvent::power_accepted);
+            MessageType::Control(ControlMessageType::Accept) => {
+                self.notify(CallbackEvent::PowerAccepted);
             }
-            pd_msg_type::pd_msg_type_ctrl_reject => {
+            MessageType::Control(ControlMessageType::Reject) => {
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
-                self.notify(CallbackEvent::power_rejected);
+                self.notify(CallbackEvent::PowerRejected);
             }
-            pd_msg_type::pd_msg_type_ctrl_ps_ready => {
+            MessageType::Control(ControlMessageType::PsRdy) => {
                 self.active_voltage = self.requested_voltage;
                 self.active_max_current = self.requested_max_current;
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
-                self.notify(CallbackEvent::power_ready);
+                self.notify(CallbackEvent::PowerReady);
             }
             _ => (),
         }
@@ -144,7 +145,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         let mut voltage = 5000;
 
         match event {
-            CallbackEvent::source_caps_changed => {
+            CallbackEvent::SourceCapabilitiesChanged => {
                 debug!("Caps changed: {}", self.num_source_caps);
 
                 // Take maximum voltage
@@ -162,16 +163,16 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 self.request_power(voltage, 0);
             }
 
-            CallbackEvent::power_ready => debug!("Voltage: {}", self.active_voltage),
+            CallbackEvent::PowerReady => debug!("Voltage: {}", self.active_voltage),
 
-            CallbackEvent::protocol_changed => debug!("protocol_changed"),
+            CallbackEvent::ProtocolChanged => debug!("protocol_changed"),
 
             _ => (),
         }
     }
 
     fn handle_src_cap_msg(&mut self, header: u16, payload: *const u8) {
-        let n = PdHeader(header).num_data_objs();
+        let n = Header(header).num_objects() as usize;
 
         self.num_source_caps = 0;
         self.is_unconstrained = false;
@@ -220,7 +221,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             self.num_source_caps += 1;
         }
 
-        self.notify(CallbackEvent::source_caps_changed);
+        self.notify(CallbackEvent::SourceCapabilitiesChanged);
     }
 
     fn request_power(&mut self, voltage: u16, mut max_current: u16) {
@@ -293,7 +294,11 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             todo!()
         }
 
-        let header = PdHeader::create_data(pd_msg_type::pd_msg_type_data_request, 1, self.spec_rev);
+        let header = Header(0)
+            .with_message_type_raw(DataMessageType::Request as u8)
+            .with_num_objects(1)
+            .with_spec_revision(SpecificationRevision::from(self.spec_rev))
+            .with_port_power_role(usb_pd::PowerRole::Sink);
 
         // Send message
         self.pd_controller.send_message(header.0, &payload);
@@ -327,7 +332,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
 /// Power supply type
 #[derive(Clone, Copy, PartialEq)]
-enum SupplyType {
+pub enum SupplyType {
     /// Fixed supply (Vmin = Vmax)
     Fixed = 0,
     /// Battery
@@ -365,91 +370,13 @@ struct SourceCapability {
 /// Callback event types
 enum CallbackEvent {
     /// Power delivery protocol has changed
-    protocol_changed,
+    ProtocolChanged,
     /// Source capabilities have changed (immediately request power)
-    source_caps_changed,
+    SourceCapabilitiesChanged,
     /// Requested power has been accepted (but not ready yet)
-    power_accepted,
+    PowerAccepted,
     /// Requested power has been rejected
-    power_rejected,
+    PowerRejected,
     /// Requested power is now ready
-    power_ready,
-}
-
-/// USB PD message type
-#[derive(PartialEq)]
-pub enum pd_msg_type {
-    pd_msg_type_ctrl_good_crc = 0x01,
-    pd_msg_type_ctrl_goto_min = 0x02,
-    pd_msg_type_ctrl_accept = 0x03,
-    pd_msg_type_ctrl_reject = 0x04,
-    pd_msg_type_ctrl_ping = 0x05,
-    pd_msg_type_ctrl_ps_ready = 0x06,
-    pd_msg_type_ctrl_get_source_cap = 0x07,
-    pd_msg_type_ctrl_get_sink_cap = 0x08,
-    pd_msg_type_ctrl_dr_swap = 0x09,
-    pd_msg_type_ctrl_pr_swap = 0x0a,
-    pd_msg_type_ctrl_vconn_swap = 0x0b,
-    pd_msg_type_ctrl_wait = 0x0c,
-    pd_msg_type_ctrl_soft_reset = 0x0d,
-    pd_msg_type_ctrl_data_reset = 0x0e,
-    pd_msg_type_ctrl_data_reset_complete = 0x0f,
-    pd_msg_type_ctrl_not_supported = 0x10,
-    pd_msg_type_ctrl_get_source_cap_extended = 0x11,
-    pd_msg_type_ctrl_get_status = 0x12,
-    pd_msg_type_ctrl_fr_swap = 0x13,
-    pd_msg_type_ctrl_get_pps_status = 0x14,
-    pd_msg_type_ctrl_get_country_codes = 0x15,
-    pd_msg_type_ctrl_get_sink_cap_extended = 0x16,
-    pd_msg_type_data_source_capabilities = 0x81,
-    pd_msg_type_data_request = 0x82,
-    pd_msg_type_data_bist = 0x83,
-    pd_msg_type_data_sink_capabilities = 0x84,
-    pd_msg_type_data_battery_status = 0x85,
-    pd_msg_type_data_alert = 0x86,
-    pd_msg_type_data_get_country_info = 0x87,
-    pd_msg_type_data_enter_usb = 0x88,
-    pd_msg_type_data_vendor_defined = 0x8f,
-}
-
-/// Helper class to constrcut and decode USB PD message headers
-pub struct PdHeader(pub u16);
-
-impl PdHeader {
-    pub fn has_extended(&self) -> bool {
-        return (self.0 & 0x8000) != 0;
-    }
-
-    pub fn num_data_objs(&self) -> usize {
-        ((self.0 >> 12) & 0x07) as usize
-    }
-
-    pub fn message_id(&self) -> u8 {
-        ((self.0 >> 9) & 0x07) as u8
-    }
-
-    pub fn message_type(&self) -> pd_msg_type {
-        unsafe {
-            core::mem::transmute(
-                ((((self.num_data_objs() != 0) as u16) << 7) | (self.0 & 0x1f)) as u8,
-            )
-        }
-    }
-
-    pub fn spec_rev(&self) -> u8 {
-        ((self.0 >> 6) as u8 & 0x03) + 1
-    }
-
-    pub fn create_ctrl(msg_type: pd_msg_type, rev: u8) -> Self {
-        Self((msg_type as u16 & 0x1f) | 0x40 | ((rev as u16 - 1) << 6))
-    }
-
-    pub fn create_data(msg_type: pd_msg_type, num_data_objs: usize, rev: u8) -> Self {
-        Self(
-            ((num_data_objs as u16 & 0x07) << 12)
-                | (msg_type as u16 & 0x1f)
-                | 0x40
-                | ((rev as u16 - 1) << 6),
-        )
-    }
+    PowerReady,
 }
