@@ -9,7 +9,7 @@ use {
     pdo::{
         AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery, EPRAdjustableVoltageSupply,
         FixedSupply, PowerDataObject, PowerDataObjectRaw, SPRProgrammablePowerSupply,
-        VariableSupply,
+        SourceCapabilities, VariableSupply,
     },
     vdo::{VDMHeader, VDMHeaderRaw, VDMHeaderStructured, VDMHeaderUnstructured, VDMType},
 };
@@ -19,7 +19,7 @@ pub enum Message {
     Accept,
     Reject,
     Ready,
-    SourceCapabilities(Vec<PowerDataObject, 8>),
+    SourceCapabilities(SourceCapabilities),
     VendorDefined((VDMHeader, Vec<u32, 7>)), // TODO: Incomplete
     SoftReset,
     Unknown,
@@ -32,36 +32,38 @@ impl Message {
             MessageType::Control(ControlMessageType::Reject) => Message::Reject,
             MessageType::Control(ControlMessageType::PsRdy) => Message::Ready,
             MessageType::Control(ControlMessageType::SoftReset) => Message::SoftReset,
-            MessageType::Data(DataMessageType::SourceCapabilities) => Message::SourceCapabilities(
-                payload
-                    .chunks_exact(4)
-                    .take(header.num_objects())
-                    .map(|buf| PowerDataObjectRaw(LittleEndian::read_u32(buf)))
-                    .map(|pdo| match pdo.kind() {
-                        0b00 => PowerDataObject::FixedSupply(FixedSupply(pdo.0)),
-                        0b01 => PowerDataObject::Battery(Battery(pdo.0)),
-                        0b10 => PowerDataObject::VariableSupply(VariableSupply(pdo.0)),
-                        0b11 => PowerDataObject::AugmentedPowerDataObject({
-                            match AugmentedPowerDataObjectRaw(pdo.0).supply() {
-                                0b00 => {
-                                    AugmentedPowerDataObject::SPR(SPRProgrammablePowerSupply(pdo.0))
+            MessageType::Data(DataMessageType::SourceCapabilities) => {
+                Message::SourceCapabilities(SourceCapabilities(
+                    payload
+                        .chunks_exact(4)
+                        .take(header.num_objects())
+                        .map(|buf| PowerDataObjectRaw(LittleEndian::read_u32(buf)))
+                        .map(|pdo| match pdo.kind() {
+                            0b00 => PowerDataObject::FixedSupply(FixedSupply(pdo.0)),
+                            0b01 => PowerDataObject::Battery(Battery(pdo.0)),
+                            0b10 => PowerDataObject::VariableSupply(VariableSupply(pdo.0)),
+                            0b11 => PowerDataObject::AugmentedPowerDataObject({
+                                match AugmentedPowerDataObjectRaw(pdo.0).supply() {
+                                    0b00 => AugmentedPowerDataObject::SPR(
+                                        SPRProgrammablePowerSupply(pdo.0),
+                                    ),
+                                    0b01 => AugmentedPowerDataObject::EPR(
+                                        EPRAdjustableVoltageSupply(pdo.0),
+                                    ),
+                                    _ => {
+                                        warn!("Unknown AugmentedPowerDataObject supply");
+                                        AugmentedPowerDataObject::Unknown(pdo.0)
+                                    }
                                 }
-                                0b01 => {
-                                    AugmentedPowerDataObject::EPR(EPRAdjustableVoltageSupply(pdo.0))
-                                }
-                                _ => {
-                                    warn!("Unknown AugmentedPowerDataObject supply");
-                                    AugmentedPowerDataObject::Unknown(pdo.0)
-                                }
+                            }),
+                            _ => {
+                                warn!("Unknown PowerDataObject kind");
+                                PowerDataObject::Unknown(pdo)
                             }
-                        }),
-                        _ => {
-                            warn!("Unknown PowerDataObject kind");
-                            PowerDataObject::Unknown(pdo)
-                        }
-                    })
-                    .collect(),
-            ),
+                        })
+                        .collect(),
+                ))
+            }
             MessageType::Data(DataMessageType::VendorDefined) => {
                 // Keep for now...
                 let len = payload.len();

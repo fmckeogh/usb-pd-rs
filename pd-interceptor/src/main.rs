@@ -103,6 +103,7 @@ fn handle_event(event: Event) -> Option<Request> {
 
             // Take maximum voltage
             let (index, supply) = caps
+                .pdos()
                 .iter()
                 .enumerate()
                 .filter_map(|(i, cap)| {

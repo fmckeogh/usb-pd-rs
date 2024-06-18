@@ -2,7 +2,7 @@ use {
     crate::{
         header::{DataMessageType, Header, SpecificationRevision},
         messages::{
-            pdo::{FixedVariableRequestDataObject, PPSRequestDataObject, PowerDataObject},
+            pdo::{FixedVariableRequestDataObject, PPSRequestDataObject, SourceCapabilities},
             vdo::{
                 CertStatVDO, ProductVDO, UFPTypeVDO, VDMCommand, VDMCommandType, VDMHeader,
                 VDMHeaderStructured, VDMIdentityHeader, VDMType, VDMVersionMajor, VDMVersionMinor,
@@ -37,7 +37,7 @@ pub enum Event {
     /// Power delivery protocol has changed
     ProtocolChanged,
     /// Source capabilities have changed (immediately request power)
-    SourceCapabilitiesChanged(Vec<PowerDataObject, 8>),
+    SourceCapabilitiesChanged(SourceCapabilities),
     /// Requested power has been accepted (but not ready yet)
     PowerAccepted,
     /// Requested power has been rejected
