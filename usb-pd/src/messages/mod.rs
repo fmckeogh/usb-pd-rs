@@ -1,16 +1,17 @@
+pub mod pdo;
+pub mod vdo;
+
 use {
-    crate::{
-        header::{ControlMessageType, DataMessageType, Header, MessageType},
-        pdo::{
-            AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery,
-            EPRAdjustableVoltageSupply, FixedSupply, PowerDataObject, PowerDataObjectRaw,
-            SPRProgrammablePowerSupply, VariableSupply,
-        },
-        vdo::{VDMHeader, VDMHeaderRaw, VDMHeaderStructured, VDMHeaderUnstructured, VDMType},
-    },
+    crate::header::{ControlMessageType, DataMessageType, Header, MessageType},
     byteorder::{ByteOrder, LittleEndian},
     defmt::{trace, warn, Format},
     heapless::Vec,
+    pdo::{
+        AugmentedPowerDataObject, AugmentedPowerDataObjectRaw, Battery, EPRAdjustableVoltageSupply,
+        FixedSupply, PowerDataObject, PowerDataObjectRaw, SPRProgrammablePowerSupply,
+        VariableSupply,
+    },
+    vdo::{VDMHeader, VDMHeaderRaw, VDMHeaderStructured, VDMHeaderUnstructured, VDMType},
 };
 
 #[derive(Debug, Clone, Format)]

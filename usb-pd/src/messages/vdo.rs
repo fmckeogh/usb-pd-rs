@@ -212,6 +212,12 @@ impl VDMHeaderStructured {
     }
 }
 
+impl Default for VDMHeaderStructured {
+    fn default() -> Self {
+        VDMHeaderStructured(0).with_vdm_type(VDMType::Structured)
+    }
+}
+
 #[derive(Clone, Copy, Format)]
 pub enum VDMVersionMajor {
     Version10,

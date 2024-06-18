@@ -1,11 +1,13 @@
 use {
     crate::{
         header::{DataMessageType, Header, SpecificationRevision},
-        message::Message,
-        pdo::{FixedVariableRequestDataObject, PowerDataObject},
-        vdo::{
-            CertStatVDO, ProductVDO, UFPTypeVDO, VDMCommand, VDMCommandType, VDMHeader,
-            VDMHeaderStructured, VDMIdentityHeader, VDMType, VDMVersionMajor, VDMVersionMinor,
+        messages::{
+            pdo::{FixedVariableRequestDataObject, PowerDataObject},
+            vdo::{
+                CertStatVDO, ProductVDO, UFPTypeVDO, VDMCommand, VDMCommandType, VDMHeader,
+                VDMHeaderStructured, VDMIdentityHeader, VDMType, VDMVersionMajor, VDMVersionMinor,
+            },
+            Message,
         },
         DataRole, PowerRole,
     },
@@ -164,7 +166,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                         .with_command_type(VDMCommandType::ResponderACK)
                         .with_object_position(0) // 0 Must be used for descover identity
                         .with_standard_or_vid(0xff00) // PD SID must be used with descover identity
-                        .with_vdm_type(VDMType::Structured)
+                        //.with_vdm_type(VDMType::Structured)
                         .with_vdm_version_major(VDMVersionMajor::Version2x.into())
                         .with_vdm_version_minor(VDMVersionMinor::Version20.into()),
                 );

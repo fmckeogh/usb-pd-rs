@@ -1,12 +1,10 @@
 #![no_std]
 
 pub mod header;
-pub mod message;
-pub mod pdo;
+pub mod messages;
 pub mod sink;
 pub mod source;
 pub mod token;
-pub mod vdo;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CcPin {
