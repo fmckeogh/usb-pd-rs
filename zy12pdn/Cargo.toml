@@ -12,10 +12,10 @@ stm32f0xx-hal = { version = "0.18.0", features = ["rt", "stm32f030", "stm32f030x
 
 defmt = "0.3.5"
 defmt-rtt = "0.4.0"
-embedded-hal = "0.2.7"
+panic-probe = { version = "0.3.1", features = ["print-defmt"] }
 
+embedded-hal = "0.2.7"
 bitbang-hal = "0.3.2"
 
 fusb302b = { path = "../fusb302b" }
 usb-pd = { path = "../usb-pd" }
-panic-probe = { version = "0.3.1", features = ["print-defmt"] }
