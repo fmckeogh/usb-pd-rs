@@ -352,5 +352,16 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
     fn process_callback(&mut self, event: callback::Event) {
         let resp = (self.callback)(event);
         trace!("resp: {:?}", resp);
+
+        match resp {
+            Some(callback::Response::Request { voltage, current }) => {
+                self.request_power(voltage, current);
+            }
+            None => return,
+        }
+    }
+
+    fn request_power(&mut self, _voltage: u16, _current: u16) {
+        todo!()
     }
 }
