@@ -10,12 +10,12 @@ license = "MIT"
 keywords = ["nostd", "usb-pd", "driver", "embedded", "fusb302b"]
 
 [dependencies]
-byteorder = { version = "1.4.3", default-features = false }
+byteorder = { version = "1.5.0", default-features = false }
 embedded-hal = "0.2.7"
 heapless = { version = "0.7.16", features = ["defmt"] }
 fugit = "0.3.7"
 defmt = "0.3.5"
-paste = "1.0.13"
+paste = "1.0.14"
 proc-bitfield = "0.3.0"
 
 usb-pd = { path = "../usb-pd" }
