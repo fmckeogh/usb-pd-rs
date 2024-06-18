@@ -3,8 +3,9 @@ members = ["zy12pdn", "fusb302b", "usb-pd"]
 resolver = "2"
 
 [profile.release]
-opt-level = "s" # better than z
+opt-level = "s"
 lto = "fat"
 codegen-units = 1
 debug = true
 incremental = false
+panic = "abort"
