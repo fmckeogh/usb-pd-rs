@@ -210,7 +210,7 @@ dependencies = [
 
 [[package]]
 name = "fusb302b"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "byteorder",
  "defmt",
@@ -219,7 +219,7 @@ dependencies = [
  "heapless",
  "paste",
  "proc-bitfield",
- "usb-pd",
+ "usb-pd 0.0.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -549,7 +549,20 @@ checksum = "22049a19f4a68748a168c0fc439f9516686aa045927ff767eca0a85101fb6e73"
 
 [[package]]
 name = "usb-pd"
-version = "0.1.0"
+version = "0.0.1"
+dependencies = [
+ "byteorder",
+ "defmt",
+ "fugit",
+ "heapless",
+ "proc-bitfield",
+]
+
+[[package]]
+name = "usb-pd"
+version = "0.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a232626d8d44d2e798828ad1009341fd946230831df0e8277f276626f1318241"
 dependencies = [
  "byteorder",
  "defmt",
@@ -600,5 +613,5 @@ dependencies = [
  "panic-probe",
  "stm32f0xx-hal",
  "systick-monotonic",
- "usb-pd",
+ "usb-pd 0.0.1",
 ]

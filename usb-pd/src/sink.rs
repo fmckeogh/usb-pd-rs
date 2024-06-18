@@ -40,7 +40,7 @@ pub enum DriverEvent {
 pub struct Sink<DRIVER> {
     driver: DRIVER,
 
-    protocol_: Protocol,
+    protocol: Protocol,
 
     /// Requested voltage (in mV)
     requested_voltage: u16,
@@ -64,7 +64,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     pub fn new(driver: DRIVER, callback: CallbackFn) -> Self {
         Self {
             driver,
-            protocol_: Protocol::Usb20,
+            protocol: Protocol::Usb20,
             requested_voltage: 0,
             requested_max_current: 0,
             active_voltage: 5000,
@@ -102,17 +102,17 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     }
 
     fn update_protocol(&mut self) -> bool {
-        let old_protocol = self.protocol_;
+        let old_protocol = self.protocol;
 
         if self.driver.state() == DriverState::UsbPd {
-            self.protocol_ = Protocol::UsbPd;
+            self.protocol = Protocol::UsbPd;
         } else {
-            self.protocol_ = Protocol::Usb20;
+            self.protocol = Protocol::Usb20;
             self.active_voltage = 5000;
             self.active_max_current = 900;
         }
 
-        self.protocol_ != old_protocol
+        self.protocol != old_protocol
     }
 
     fn handle_msg(&mut self, message: Message) {
