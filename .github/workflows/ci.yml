@@ -19,7 +19,7 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
-          target: thumbv6m-none-eabi
+          target: thumbv7m-none-eabi
 
       - name: Run cargo format in check mode
         uses: actions-rs/cargo@v1
