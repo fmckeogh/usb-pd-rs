@@ -191,11 +191,11 @@ impl From<bool> for Role {
     }
 }
 
-impl Into<bool> for Role {
-    fn into(self) -> bool {
-        match self {
-            Self::Sink => false,
-            Self::Source => true,
+impl From<Role> for bool {
+    fn from(role: Role) -> bool {
+        match role {
+            Role::Sink => false,
+            Role::Source => true,
         }
     }
 }
@@ -216,11 +216,11 @@ impl From<bool> for Revision {
     }
 }
 
-impl Into<bool> for Revision {
-    fn into(self) -> bool {
-        match self {
-            Self::R1_0 => false,
-            Self::R2_0 => true,
+impl From<Revision> for bool {
+    fn from(revision: Revision) -> bool {
+        match revision {
+            Revision::R1_0 => false,
+            Revision::R2_0 => true,
         }
     }
 }
@@ -396,7 +396,28 @@ impl Default for Control2 {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Control3(pub u8): Debug, FromRaw, IntoRaw {
+        /// Send a hard reset packet (highest priority)
+        pub send_hard_reset: bool [write_only] @ 6,
 
+        /// BIST mode when enabled. Receive FIFO is cleared immediately after sending GoodCRC response.
+        ///
+        /// Normal operation when disabled; all packets are treated as usual.
+        pub bist_tmode: bool @ 5,
+
+        /// Enable automatic hard reset packet if soft reset fail
+        pub auto_hardreset: bool @ 4,
+
+        /// Enable automatic soft reset packet if retries fail
+        pub auto_softreset: bool @ 3,
+
+        /// * `11`: Three retries of packet (four total packets sent)
+        /// * `10`: Two retries of packet (three total packets sent)
+        /// * `01`: One retry of packet (two total packets sent)
+        /// * `00`: No retries (similar to disabling auto retry)
+        pub n_retries: u8 @ 1..=2,
+
+        /// Enable automatic packet retries if GoodCRC is not received
+        pub auto_retry: bool @ 0,
     }
 }
 
@@ -409,7 +430,22 @@ impl Default for Control3 {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Mask1(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Mask I_VBUSOK interrupt bit
+        pub m_vbusok: bool @ 7,
+        /// Mask interrupt for a transition in CC bus activity
+        pub m_activity: bool @ 6,
+        /// Mask I_COMP_CHNG interrupt for change is the value of COMP, the measure comparator
+        pub m_comp_chng: bool @ 5,
+        /// Mask interrupt from CRC_CHK bit
+        pub m_crc_chk: bool @ 4,
+        /// Mask the I_ALERT interrupt bit
+        pub m_alert: bool @ 3,
+        /// Mask the I_WAKE interrupt bit
+        pub m_wake: bool @ 2,
+        /// Mask the I_COLLISION interrupt bit
+        pub m_collision: bool @ 1,
+        /// Mask a change in host requested current level
+        pub m_bc_lvl: bool @ 0,
     }
 }
 
@@ -422,7 +458,14 @@ impl Default for Mask1 {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Power(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Enable internal oscillator
+        pub internal_oscillator: bool @ 3,
+        /// Measure block powered
+        pub measure_block: bool @ 2,
+        /// Receiver powered and current references for Measure block
+        pub receiver: bool @ 1,
+        /// Band gap and wake circuit
+        pub bandgap_wake: bool @ 0,
     }
 }
 
@@ -435,7 +478,11 @@ impl Default for Power {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Reset(pub u8): Debug, FromRaw, IntoRaw {
+        /// Reset just the PD logic for both the PD transmitter and receiver
+        pub pd_reset: bool @ 1,
 
+        /// Reset the FUSB302B including the I2C registers to their default values
+        pub sw_reset: bool @ 0,
     }
 }
 
