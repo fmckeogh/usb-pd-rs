@@ -1,2 +1,8 @@
 [workspace]
 members = ["bridge", "fusb302b"]
+
+[profile.release]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
