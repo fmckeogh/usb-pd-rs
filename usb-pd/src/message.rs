@@ -63,22 +63,15 @@ impl Message {
                 // let num_obj = header.num_objects();
                 //debug!("VENDOR: {:?}, {:?}, {:?}", len, num_obj, payload);
 
-                let header = payload
-                    .chunks_exact(4)
-                    .take(1)
-                    .map(|h| {
-                        let raw = VDMHeaderRaw(LittleEndian::read_u32(h));
-                        match raw.vdm_type() {
-                            VDMType::Unstructured => {
-                                VDMHeader::Unstructured(VDMHeaderUnstructured(raw.0))
-                            }
-                            VDMType::Structured => {
-                                VDMHeader::Structured(VDMHeaderStructured(raw.0))
-                            }
+                let header = {
+                    let raw = VDMHeaderRaw(LittleEndian::read_u32(&payload[..4]));
+                    match raw.vdm_type() {
+                        VDMType::Unstructured => {
+                            VDMHeader::Unstructured(VDMHeaderUnstructured(raw.0))
                         }
-                    })
-                    .next()
-                    .unwrap();
+                        VDMType::Structured => VDMHeader::Structured(VDMHeaderStructured(raw.0)),
+                    }
+                };
 
                 trace!("VDM RX: {:?}", header);
                 // trace!("HEADER: VDM:: TYPE: {:?}, VERS: {:?}", header.vdm_type(), header.vdm_version());

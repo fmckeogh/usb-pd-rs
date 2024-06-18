@@ -134,15 +134,14 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
             }
             State::Ready => {
                 if self.timeout.is_expired() {
-                    debug!("Timeout expired, no CC activity");
+                    debug!("ready: timeout expired, establishing retry wait");
                     self.establish_retry_wait();
                 }
             }
             State::Connected { .. } => (),
             State::RetryWait => {
                 if self.timeout.is_expired() {
-                    // debug!("Retry wait");
-
+                    debug!("retry wait: timeout expired, resetting");
                     self.establish_usb_20();
                 }
             }
@@ -319,13 +318,15 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 } else {
                     self.establish_usb_pd();
                 }
+
                 let message = Message::parse(Header(header), &payload[..]);
+
                 trace!("{:?}, {:x}:{:x}", message, header, payload);
 
                 self.events
                     .enqueue(DriverEvent::MessageReceived(message))
                     .ok()
-                    .unwrap();
+                    .expect("Event queue full")
             }
         }
     }
