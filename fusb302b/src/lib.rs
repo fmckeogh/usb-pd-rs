@@ -34,7 +34,7 @@ pub struct Fusb302b<I2C> {
     timeout: Timeout,
 
     /// Queue of events that have occurred to be retrieved by USB-PD library
-    events: Queue<DriverEvent, 4>,
+    events: Queue<DriverEvent, 16>,
 
     /// Current driver state
     state: State,
@@ -141,6 +141,8 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
             State::Connected { .. } => (),
             State::RetryWait => {
                 if self.timeout.is_expired() {
+                    // debug!("Retry wait");
+
                     self.establish_usb_20();
                 }
             }
@@ -318,7 +320,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                     self.establish_usb_pd();
                 }
                 let message = Message::parse(Header(header), &payload[..]);
-                trace!("{:?}", message);
+                trace!("{:?}, {:x}:{:x}", message, header, payload);
 
                 self.events
                     .enqueue(DriverEvent::MessageReceived(message))
@@ -339,6 +341,13 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     }
 
     fn establish_usb_20(&mut self) {
+        // debug!("EU20");
+        // Timeouts crash without this...
+        // self.state = State::Measuring { cc_pin: CcPin::CC1 };
+        // self.init();
+        // self.timeout.start(Duration::millis(500));
+        // self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
+
         self.start_sink();
     }
 
