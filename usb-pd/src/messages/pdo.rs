@@ -267,7 +267,7 @@ impl FixedVariableRequestDataObject {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct BatteryRequestDataObject(pub u32): FromRaw, IntoRaw {
+    pub struct BatteryRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
         /// Object position (0000b and 1110b…1111b are Reserved and Shall Not be used)
         pub object_position: u8 @ 28..=31,
         /// GiveBackFlag = 0
@@ -305,7 +305,7 @@ impl BatteryRequestDataObject {
 
 bitfield!(
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct PPSRequestDataObject(pub u32): FromRaw, IntoRaw {
+    pub struct PPSRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
         /// Object position (0000b and 1110b…1111b are Reserved and Shall Not be used)
         pub object_position: u8 @ 28..=31,
         /// Capability mismatch
