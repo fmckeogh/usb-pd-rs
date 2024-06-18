@@ -31,88 +31,92 @@ where
         }
     }
 
-    fn set_scl_high(&mut self) {
-        self.scl.set_high().ok();
+    fn set_scl_high(&mut self) -> Result<(), Error> {
+        self.scl.set_high().map_err(|_| Error::Bus)
     }
 
-    fn set_scl_low(&mut self) {
-        self.scl.set_low().ok();
+    fn set_scl_low(&mut self) -> Result<(), Error> {
+        self.scl.set_low().map_err(|_| Error::Bus)
     }
 
-    fn set_sda_high(&mut self) {
-        self.sda.set_high().ok();
+    fn set_sda_high(&mut self) -> Result<(), Error> {
+        self.sda.set_high().map_err(|_| Error::Bus)
     }
 
-    fn set_sda_low(&mut self) {
-        self.sda.set_low().ok();
+    fn set_sda_low(&mut self) -> Result<(), Error> {
+        self.sda.set_low().map_err(|_| Error::Bus)
     }
 
     async fn wait_for_clk(&mut self) {
         self.ticker.next().await;
     }
 
-    async fn i2c_start(&mut self) {
-        self.set_scl_high();
-        self.set_sda_high();
+    async fn i2c_start(&mut self) -> Result<(), Error> {
+        self.set_scl_high()?;
+        self.set_sda_high()?;
         self.wait_for_clk().await;
 
-        self.set_sda_low();
+        self.set_sda_low()?;
         self.wait_for_clk().await;
 
-        self.set_scl_low();
+        self.set_scl_low()?;
         self.wait_for_clk().await;
+
+        Ok(())
     }
 
-    async fn i2c_stop(&mut self) {
-        self.set_scl_high();
+    async fn i2c_stop(&mut self) -> Result<(), Error> {
+        self.set_scl_high()?;
         self.wait_for_clk().await;
 
-        self.set_sda_high();
+        self.set_sda_high()?;
         self.wait_for_clk().await;
+
+        Ok(())
     }
 
-    async fn i2c_is_ack(&mut self) -> bool {
-        self.set_sda_high();
-        self.set_scl_high();
+    async fn i2c_is_ack(&mut self) -> Result<bool, Error> {
+        self.set_sda_high()?;
+        self.set_scl_high()?;
         self.wait_for_clk().await;
 
-        let ack = self.sda.is_low().unwrap();
+        let ack = self.sda.is_low().map_err(|_| Error::Bus)?;
 
-        self.set_scl_low();
-        self.set_sda_low();
+        self.set_scl_low()?;
+        self.set_sda_low()?;
         self.wait_for_clk().await;
 
-        ack
+        Ok(ack)
     }
 
-    async fn i2c_read_byte(&mut self, should_send_ack: bool) {
+    async fn i2c_read_byte(&mut self, should_send_ack: bool) -> Result<u8, Error> {
         let mut byte: u8 = 0;
 
-        self.set_sda_high();
+        self.set_sda_high()?;
 
         for bit_offset in 0..8 {
-            self.set_scl_high();
+            self.set_scl_high()?;
             self.wait_for_clk().await;
 
-            if self.sda.is_high().map_err(|_| Error::Bus) {
+            if self.sda.is_high().map_err(|_| Error::Bus)? {
                 byte |= 1 << (7 - bit_offset);
             }
 
-            self.set_scl_low();
+            self.set_scl_low()?;
             self.wait_for_clk().await;
         }
 
         if should_send_ack {
-            self.set_sda_low();
+            self.set_sda_low()?;
         } else {
-            self.set_sda_high();
+            self.set_sda_high()?;
         }
 
-        self.set_scl_high();
+        self.set_scl_high()?;
         self.wait_for_clk().await;
 
-        self.set_scl_low();
-        self.set_sda_low();
+        self.set_scl_low()?;
+        self.set_sda_low()?;
         self.wait_for_clk().await;
 
         Ok(byte)
@@ -123,16 +127,16 @@ where
             let out_bit = (byte >> (7 - bit_offset)) & 0b1;
 
             if out_bit == 1 {
-                self.set_sda_high();
+                self.set_sda_high()?;
             } else {
-                self.set_sda_low();
+                self.set_sda_low()?;
             }
 
-            self.set_scl_high();
+            self.set_scl_high()?;
             self.wait_for_clk().await;
 
-            self.set_scl_low();
-            self.set_sda_low();
+            self.set_scl_low()?;
+            self.set_sda_low()?;
             self.wait_for_clk().await;
         }
 
@@ -146,21 +150,21 @@ where
             } else {
                 true
             };
-            input[i] = self.i2c_read_byte(should_send_ack).await;
+            input[i] = self.i2c_read_byte(should_send_ack).await?;
         }
         Ok(())
     }
 
     async fn write_to_slave(&mut self, output: &[u8]) -> Result<(), Error> {
         for byte in output {
-            self.i2c_write_byte(*byte).await;
-            self.check_ack().await;
+            self.i2c_write_byte(*byte).await?;
+            self.check_ack().await?;
         }
         Ok(())
     }
 
     async fn check_ack(&mut self) -> Result<(), Error> {
-        if !self.i2c_is_ack().await {
+        if !self.i2c_is_ack().await? {
             Err(Error::NoAck)
         } else {
             Ok(())
@@ -248,89 +252,3 @@ impl embedded_hal_async::i2c::Error for Error {
         }
     }
 }
-
-// impl<SCL, SDA, CLK, E> Write for I2cBB<SCL, SDA, CLK>
-// where
-//     SCL: OutputPin<Error = E>,
-//     SDA: OutputPin<Error = E> + InputPin<Error = E>,
-//     CLK: CountDown + Periodic,
-// {
-//     type Error = crate::i2c::Error<E>;
-
-//     fn write(&mut self, addr: u8, output: &[u8]) -> Result<(), Self::Error> {
-//         // ST
-//         self.i2c_start()?;
-
-//         // SAD + W
-//         self.i2c_write_byte((addr << 1) | 0x0)?;
-//         self.check_ack()?;
-
-//         self.write_to_slave(output)?;
-
-//         // SP
-//         self.i2c_stop()
-//     }
-// }
-
-// impl<SCL, SDA, CLK, E> Read for I2cBB<SCL, SDA, CLK>
-// where
-//     SCL: OutputPin<Error = E>,
-//     SDA: OutputPin<Error = E> + InputPin<Error = E>,
-//     CLK: CountDown + Periodic,
-// {
-//     type Error = crate::i2c::Error<E>;
-
-//     fn read(&mut self, addr: u8, input: &mut [u8]) -> Result<(), Self::Error>
-// {         if input.is_empty() {
-//             return Ok(());
-//         }
-
-//         // ST
-//         self.i2c_start()?;
-
-//         // SAD + R
-//         self.i2c_write_byte((addr << 1) | 0x1)?;
-//         self.check_ack()?;
-
-//         self.read_from_slave(input)?;
-
-//         // SP
-//         self.i2c_stop()
-//     }
-// }
-
-// impl<SCL, SDA, CLK, E> WriteRead for I2cBB<SCL, SDA, CLK>
-// where
-//     SCL: OutputPin<Error = E>,
-//     SDA: OutputPin<Error = E> + InputPin<Error = E>,
-//     CLK: CountDown + Periodic,
-// {
-//     type Error = crate::i2c::Error<E>;
-
-//     fn write_read(&mut self, addr: u8, output: &[u8], input: &mut [u8]) ->
-// Result<(), Self::Error> {         if output.is_empty() || input.is_empty() {
-//             return Err(Error::InvalidData);
-//         }
-
-//         // ST
-//         self.i2c_start()?;
-
-//         // SAD + W
-//         self.i2c_write_byte((addr << 1) | 0x0)?;
-//         self.check_ack()?;
-
-//         self.write_to_slave(output)?;
-
-//         // SR
-//         self.i2c_start()?;
-
-//         // SAD + R
-//         self.i2c_write_byte((addr << 1) | 0x1)?;
-//         self.check_ack()?;
-
-//         self.read_from_slave(input)?;
-
-//         // SP
-//         self.i2c_stop()
-//     }
-// }
