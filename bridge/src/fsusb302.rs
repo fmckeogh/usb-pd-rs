@@ -648,19 +648,20 @@ impl Fsusb302 {
         let mut buf = [0u8; 40];
 
         // Create token stream
-        buf[0] = token_sop1 as u8;
+        buf[0] = reg_fifos as u8;
         buf[1] = token_sop1 as u8;
         buf[2] = token_sop1 as u8;
-        buf[3] = token_sop2 as u8;
-        buf[4] = (token_packsym as u8 | (payload_len + 2) as u8);
-        buf[5] = (header & 0xff) as u8;
-        buf[6] = (header >> 8) as u8;
+        buf[3] = token_sop1 as u8;
+        buf[4] = token_sop2 as u8;
+        buf[5] = (token_packsym as u8 | (payload_len + 2) as u8);
+        buf[6] = (header & 0xff) as u8;
+        buf[7] = (header >> 8) as u8;
         if (payload_len > 0) {
             for i in 0..payload.len() {
-                buf[7 + i] = payload[i];
+                buf[8 + i] = payload[i];
             }
         }
-        let mut n = 7 + payload_len;
+        let mut n = 8 + payload_len;
         buf[n] = token_jam_crc as u8;
         n += 1;
         buf[n] = token_eop as u8;
@@ -672,7 +673,7 @@ impl Fsusb302 {
 
         debug!("buf_len: {}", n);
 
-        self.i2c.pd_ctrl_write(reg_fifos as u8, &mut buf[..n], true);
+        self.i2c.pd_ctrl_write(&mut buf[..n]);
 
         self.next_message_id += 1;
         if (self.next_message_id == 8) {
@@ -687,6 +688,6 @@ impl Fsusb302 {
     }
 
     fn write_register(&mut self, r: reg, value: u8) {
-        self.i2c.pd_ctrl_write(r as u8, &mut [value], true);
+        self.i2c.pd_ctrl_write(&mut [r as u8, value]);
     }
 }
