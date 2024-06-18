@@ -16,7 +16,7 @@ use {
     fusb302b::Fusb302b,
     panic_probe as _,
     usb_pd::{
-        pdo::PowerDataObject,
+        messages::pdo::PowerDataObject,
         sink::{Event, Request, Sink},
     },
 };
@@ -132,6 +132,7 @@ fn handle_event(event: Event) -> Option<Request> {
         Event::ProtocolChanged => info!("protocol changed"),
         Event::PowerAccepted => info!("power accepted"),
         Event::PowerRejected => info!("power rejected"),
+        _ => todo!(),
     }
 
     None

@@ -3,17 +3,17 @@
 use {
     crate::{
         registers::{
-            Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset, Slice,
-            Switches0, Switches1,
+            Control0, Control1, Control3, Mask1, MaskA, MaskB, Power, Register, Registers, Reset,
+            Slice, Switches0, Switches1,
         },
         timeout::Timeout,
     },
-    defmt::{debug, trace, warn},
+    defmt::{debug, warn},
     embassy_time::{Duration, Instant},
     embedded_hal_async::i2c::I2c,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
-        message::Message,
+        messages::Message,
         sink::{Driver as SinkDriver, DriverState},
         token::Token,
         CcPin,
@@ -126,6 +126,19 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
             .set_mask_b(MaskB::default().with_m_gcrcsent(true))
             .await;
 
+        self.registers
+            .set_control0(Control0::default().with_int_mask(false).with_host_cur(01))
+            .await;
+        self.registers
+            .set_control3(
+                Control3::default()
+                    .with_send_hard_reset(true)
+                    .with_auto_hardreset(true)
+                    .with_auto_softreset(true)
+                    .with_auto_retry(true)
+                    .with_n_retries(3),
+            )
+            .await;
         self.state = State::Measuring { cc_pin: CcPin::CC1 };
         self.message = None;
         self.did_change_protocol = false;
@@ -345,7 +358,7 @@ impl<I2C: I2c> Fusb302b<I2C> {
 
                 let message = Message::parse(Header(header), &payload[..]);
 
-                trace!("{:?}, {:x}:{:x}", message, header, payload);
+                debug!("{:?}, {:x}:{:x}", message, header, payload);
 
                 if self.message.replace(message).is_some() {
                     panic!("pending message already set");
@@ -383,7 +396,14 @@ impl<I2C: I2c> Fusb302b<I2C> {
 
         // Enable automatic retries
         self.registers
-            .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3))
+            .set_control3(
+                Control3::default()
+                    .with_send_hard_reset(true)
+                    .with_auto_hardreset(true)
+                    .with_auto_softreset(true)
+                    .with_auto_retry(true)
+                    .with_n_retries(3),
+            )
             .await;
 
         // Enable interrupts for CC activity and CRC_CHK

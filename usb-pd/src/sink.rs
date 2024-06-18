@@ -1,12 +1,18 @@
 use {
     crate::{
         header::{DataMessageType, Header, SpecificationRevision},
-        message::Message,
-        pdo::{FixedVariableRequestDataObject, PowerDataObject},
-        PowerRole,
+        messages::{
+            pdo::{FixedVariableRequestDataObject, PPSRequestDataObject, PowerDataObject},
+            vdo::{
+                CertStatVDO, ProductVDO, UFPTypeVDO, VDMCommand, VDMCommandType, VDMHeader,
+                VDMHeaderStructured, VDMIdentityHeader, VDMType, VDMVersionMajor, VDMVersionMinor,
+            },
+            Message,
+        },
+        DataRole, PowerRole,
     },
     core::future::Future,
-    defmt::{warn, Format},
+    defmt::{debug, warn, Format},
     embassy_time::Instant,
     heapless::Vec,
 };
@@ -38,6 +44,8 @@ pub enum Event {
     PowerRejected,
     /// Requested power is now ready
     PowerReady,
+    /// VDM received
+    VDMReceived((VDMHeader, Vec<u32, 7>)),
 }
 
 /// Requests made to sink
@@ -48,6 +56,23 @@ pub enum Request {
         index: usize,
         current: u16,
     },
+    RequestPPS {
+        /// Index of the desired PowerDataObject
+        index: usize,
+        /// Requested voltage (in mV)
+        voltage: u16,
+        /// Requested maximum current (in mA)
+        current: u16,
+    },
+    REQDiscoverIdentity,
+    ACKDiscoverIdentity {
+        identity: VDMIdentityHeader,
+        cert_stat: CertStatVDO,
+        product: ProductVDO,
+        product_type_ufp: UFPTypeVDO,
+        // Does not exist yet...        product_type_dfp: Option<DFP>,
+    },
+    REQDiscoverSVIDS,
 }
 
 /// Driver state
@@ -125,6 +150,131 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     pub async fn request(&mut self, request: Request) {
         match request {
             Request::RequestPower { index, current } => self.request_power(current, index).await,
+
+            Request::RequestPPS {
+                index,
+                voltage,
+                current,
+            } => {
+                // Payload is 4 bytes
+                let mut payload = [0; 4];
+                // Add one to index to account for array offsets starting at 0 and obj_pos
+                // starting at 1...
+                let obj_pos = index + 1;
+                assert!(obj_pos > 0b0000 && obj_pos <= 0b1110);
+
+                // Create PPS request data object
+                let pps = PPSRequestDataObject(0)
+                    .with_object_position(obj_pos as u8)
+                    .with_operating_current(current / 50) // Convert current from millis to 50ma units
+                    .with_output_voltage(voltage / 20) // Convert voltage from millis to 20mv units
+                    .with_capability_mismatch(false)
+                    .with_epr_mode_capable(false)
+                    .with_usb_communications_capable(true);
+                pps.to_bytes(&mut payload[0..4]);
+
+                // Create header
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::Request as u8)
+                    .with_num_objects(1)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev))
+                    .with_port_power_role(PowerRole::Sink);
+
+                // Send request message
+                self.driver.send_message(header, &payload).await
+            }
+
+            Request::ACKDiscoverIdentity {
+                identity,
+                cert_stat,
+                product,
+                product_type_ufp,
+                //product_type_dfp,
+            } => {
+                debug!("ACKDiscoverIdentity");
+                // The size of this array will actually change depending on data...
+                // TODO: Fix this!
+                let mut payload = [0; 5 * 4];
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::VendorDefined as u8)
+                    .with_num_objects(5) // 5 VDOs, vdm header, id header, cert, product, UFP product type
+                    .with_port_data_role(DataRole::Ufp)
+                    .with_port_power_role(PowerRole::Sink)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev));
+
+                let vdm_header_vdo = VDMHeader::Structured(
+                    VDMHeaderStructured(0)
+                        .with_command(VDMCommand::DiscoverIdentity)
+                        .with_command_type(VDMCommandType::ResponderACK)
+                        .with_object_position(0) // 0 Must be used for descover identity
+                        .with_standard_or_vid(0xff00) // PD SID must be used with descover identity
+                        //.with_vdm_type(VDMType::Structured)
+                        .with_vdm_version_major(VDMVersionMajor::Version2x.into())
+                        .with_vdm_version_minor(VDMVersionMinor::Version20.into()),
+                );
+                vdm_header_vdo.to_bytes(&mut payload[0..4]);
+                identity.to_bytes(&mut payload[4..8]);
+                cert_stat.to_bytes(&mut payload[8..12]);
+                product.to_bytes(&mut payload[12..16]);
+                product_type_ufp.to_bytes(&mut payload[16..20]);
+                // if let Some(product_type_dfp) = product_type_dfp {
+                //     // 20..24 are padding bytes
+                //     product_type_dfp.to_bytes(&mut payload[24..32]);
+                // }
+                debug!("Sending VDM {:x}", payload);
+                self.driver.send_message(header, &payload).await;
+                debug!("Sent VDM");
+            }
+            Request::REQDiscoverSVIDS => {
+                debug!("REQDiscoverSVIDS");
+                let mut payload = [0; 4];
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::VendorDefined as u8)
+                    .with_num_objects(1) // 1 VDO, vdm header
+                    .with_port_data_role(DataRole::Ufp)
+                    .with_port_power_role(PowerRole::Sink)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev));
+
+                let vdm_header_vdo = VDMHeader::Structured(
+                    VDMHeaderStructured(0)
+                        .with_command(VDMCommand::DiscoverSVIDS)
+                        .with_command_type(VDMCommandType::InitiatorREQ)
+                        .with_object_position(0) // 0 Must be used for discover SVIDS
+                        .with_standard_or_vid(0xff00) // PD SID must be used with discover SVIDS
+                        .with_vdm_type(VDMType::Structured)
+                        .with_vdm_version_major(VDMVersionMajor::Version10.into())
+                        .with_vdm_version_minor(VDMVersionMinor::Version20.into()),
+                );
+                vdm_header_vdo.to_bytes(&mut payload[0..4]);
+                debug!("Sending VDM {:x}", payload);
+                self.driver.send_message(header, &payload).await;
+                debug!("Sent VDM");
+            }
+            Request::REQDiscoverIdentity => {
+                debug!("REQDiscoverIdentity");
+                let mut payload = [0; 4];
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::VendorDefined as u8)
+                    .with_num_objects(1) // 1 VDO, vdm header
+                    .with_port_data_role(DataRole::Ufp)
+                    .with_port_power_role(PowerRole::Sink)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev));
+
+                let vdm_header_vdo = VDMHeader::Structured(
+                    VDMHeaderStructured(0)
+                        .with_command(VDMCommand::DiscoverIdentity)
+                        .with_command_type(VDMCommandType::InitiatorREQ)
+                        .with_object_position(0) // 0 Must be used for descover identity
+                        .with_standard_or_vid(0xff00) // PD SID must be used with descover identity
+                        .with_vdm_type(VDMType::Structured)
+                        .with_vdm_version_major(VDMVersionMajor::Version10.into())
+                        .with_vdm_version_minor(VDMVersionMinor::Version20.into()),
+                );
+                vdm_header_vdo.to_bytes(&mut payload[0..4]);
+                debug!("Sending VDM {:x}", payload);
+                self.driver.send_message(header, &payload).await;
+                debug!("Sent VDM");
+            }
         }
     }
 
@@ -158,9 +308,9 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 Some(Event::PowerReady)
             }
             Message::SourceCapabilities(caps) => Some(Event::SourceCapabilitiesChanged(caps)),
-            Message::VendorDefined(payload) => {
-                match payload {
-                    crate::pdo::VDMHeader::Structured(hdr) => {
+            Message::VendorDefined((hdr, data)) => {
+                match hdr {
+                    VDMHeader::Structured(hdr) => {
                         warn!(
                             "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD:
                         {:?}",
@@ -168,7 +318,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                             hdr.command()
                         );
                     }
-                    crate::pdo::VDMHeader::Unstructured(hdr) => {
+                    VDMHeader::Unstructured(hdr) => {
                         warn!(
                             "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA:
                         {:x}",
@@ -177,7 +327,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                         );
                     }
                 }
-                None
+                Some(Event::VDMReceived((hdr, data)))
             }
             Message::SoftReset => {
                 warn!("UNHANDLED: Soft RESET request.");
