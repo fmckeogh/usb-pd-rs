@@ -3,7 +3,7 @@
 //! Setters/getters/clearers generated using macros, `Default` for each register is its reset value.
 
 use {
-    crate::Fusb302b,
+    crate::{DataRole, Fusb302b, PowerRole, DEVICE_ADDRESS},
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
     proc_bitfield::bitfield,
 };
@@ -100,8 +100,18 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         (Status0, status0, r),
         (Status1, status1, r),
         (Interrupt, interrupt, rc),
-        (Fifo, fifo, rw),
     );
+
+    pub fn read_fifo(&mut self, buf: &mut [u8]) {
+        self.i2c
+            .write_read(DEVICE_ADDRESS, &[Register::Fifo as u8], buf)
+            .ok();
+    }
+
+    pub fn write_fifo(&mut self, buf: &mut [u8]) {
+        buf[0] = Register::Fifo as u8;
+        self.i2c.write(DEVICE_ADDRESS, buf).ok();
+    }
 }
 
 enum Register {
@@ -176,30 +186,6 @@ impl Default for Switches0 {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum Role {
-    Source,
-    Sink,
-}
-
-impl From<bool> for Role {
-    fn from(value: bool) -> Self {
-        match value {
-            false => Self::Sink,
-            true => Self::Source,
-        }
-    }
-}
-
-impl From<Role> for bool {
-    fn from(role: Role) -> bool {
-        match role {
-            Role::Sink => false,
-            Role::Source => true,
-        }
-    }
-}
-
 /// Bit used for constructing the GoodCRC acknowledge packet
 #[derive(Debug, Clone, Copy)]
 pub enum Revision {
@@ -230,13 +216,13 @@ bitfield! {
     pub struct Switches1(pub u8): Debug, FromRaw, IntoRaw {
         /// Bit used for constructing the GoodCRC acknowledge packet. This bit corresponds to the
         /// Port Power Role bit in the message header if an SOP packet is received.
-        pub powerrole: bool [set Role, get Role] @ 7,
+        pub powerrole: bool [set PowerRole, get PowerRole] @ 7,
         /// Bit used for constructing the GoodCRC acknowledge packet. These bits correspond to the
         /// Specification Revision bits in the message header.
         pub specrev: bool [set Revision, get Revision] @ 5,
         /// Bit used for constructing the GoodCRC acknowledge packet. This bit corresponds to the
         /// Port Data Role bit in the message header.
-        pub datarole: bool [set Role, get Role] @ 4,
+        pub datarole: bool [set DataRole, get DataRole] @ 4,
         /// Starts the transmitter automatically when a message with a good CRC is received and
         /// automatically sends a GoodCRC acknowledge packet back to the relevant SOP*
         pub auto_src: bool @ 2,
