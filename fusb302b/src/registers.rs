@@ -228,15 +228,17 @@ impl Into<bool> for Revision {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Switches1(pub u8): Debug, FromRaw, IntoRaw {
-        /// Bit used for constructing the GoodCRC acknowledge packet. This bit corresponds to the Port Power Role bit in the message header if an SOP packet is received.
+        /// Bit used for constructing the GoodCRC acknowledge packet. This bit corresponds to the
+        /// Port Power Role bit in the message header if an SOP packet is received.
         pub powerrole: bool [set Role, get Role] @ 7,
-        /// Bit used for constructing the GoodCRC acknowledge packet. These bits correspond to the Specification Revision bits in the message header:
-        /// false: Revision 1.0
-        /// true: Revision 2.0
+        /// Bit used for constructing the GoodCRC acknowledge packet. These bits correspond to the
+        /// Specification Revision bits in the message header.
         pub specrev: bool [set Revision, get Revision] @ 5,
-        /// Bit used for constructing the GoodCRC acknowledge packet. This bit corresponds to the Port Data Role bit in the message header.
+        /// Bit used for constructing the GoodCRC acknowledge packet. This bit corresponds to the
+        /// Port Data Role bit in the message header.
         pub datarole: bool [set Role, get Role] @ 4,
-        /// Starts the transmitter automatically when a message with a good CRC is received and automatically sends a GoodCRC acknowledge packet back to the relevant SOP*
+        /// Starts the transmitter automatically when a message with a good CRC is received and
+        /// automatically sends a GoodCRC acknowledge packet back to the relevant SOP*
         pub auto_src: bool @ 2,
         /// Enable BMC transmit driver on CC2 pin
         pub txcc2: bool @ 1,
@@ -256,8 +258,8 @@ bitfield! {
         /// false: MDAC/comparator measurement is controlled by MEAS_CC* bits
         /// true: Measure VBUS with the MDAC/comparator. This requires MEAS_CC* bits to be 0
         pub meas_vbus: bool @ 6,
-        /// Measure Block DAC data input. LSB is equivalent to 42 mV of voltage which is compared to the measured CC voltage.
-        /// The measured CC is selected by MEAS_CC2, or MEAS_CC1 bits
+        /// Measure Block DAC data input. LSB is equivalent to 42 mV of voltage which is compared
+        /// to the measured CC voltage. The measured CC is selected by MEAS_CC2, or MEAS_CC1 bits:
         ///
         /// | `MDAC[5:0]` | `MEAS_VBUS = 0` | `MEAS_VBUS = 1` | Unit |
         /// |-------------|-----------------|-----------------|------|
@@ -281,13 +283,15 @@ impl Default for Measure {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Slice(pub u8): Debug, FromRaw, IntoRaw {
-        /// Adds hysteresis where there are now two thresholds, the lower threshold which is always the value programmed by SDAC[5:0] and the higher threshold that is:
+        /// Adds hysteresis where there are now two thresholds, the lower threshold which is always
+        /// the value programmed by SDAC[5:0] and the higher threshold that is:
         /// * `11`: 255 mV hysteresis: higher threshold = (SDAC value + 20hex)
         /// * `10`: 170 mV hysteresis: higher threshold = (SDAC value + Ahex)
         /// * `01`: 85 mV hysteresis: higher threshold = (SDAC value + 5)
         /// * `00`: No hysteresis: higher threshold = SDAC value
         pub sda_hys: u8 @ 6..=7,
-        /// BMC Slicer DAC data input. Allows for a programmable threshold so as to meet the BMC receive mask under all noise conditions.
+        /// BMC Slicer DAC data input. Allows for a programmable threshold so as to meet the BMC
+        /// receive mask under all noise conditions.
         pub sdac: u8 @ 0..=5,
     }
 }
@@ -301,7 +305,28 @@ impl Default for Slice {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Control0(pub u8): Debug, FromRaw, IntoRaw {
+        /// Self clearing bit to flush the content of the transmit FIFO
+        pub tx_flush: bool [write_only] @ 6,
+        /// Masks all interrupts, when false interrupts to host are enabled
+        pub int_mask: bool @ 5,
+        /// Controls the host pull up current enabled by PU_EN
+        ///
+        /// * `00`: No current
+        /// * `01`: 80 mA – Default USB power
+        /// * `10`: 180 mA – Medium Current Mode: 1.5 A
+        /// * `11`: 330 mA – High Current Mode: 3 A
+        pub host_cur: u8 @ 2..=3,
 
+        /// Starts the transmitter automatically when a message with a good CRC is received. This
+        /// allows the software to take as much as 300 mS to respond after the I_CRC_CHK interrupt
+        /// is received. Before starting the transmitter, an internal timer waits for approximately
+        /// 170 mS before executing the transmit start and preamble
+        pub auto_pre: bool @ 1,
+
+        /// Start transmitter using the data in the transmit FIFO. Preamble is started first.
+        /// During the preamble period the transmit data can start to be written to the transmit
+        /// FIFO. Self clearing.
+        pub tx_start: bool @ 0,
     }
 }
 
@@ -314,7 +339,18 @@ impl Default for Control0 {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Control1(pub u8): Debug, FromRaw, IntoRaw {
-
+        /// Enable SOP''_DEBUG (SOP double prime debug) packets, false for ignore
+        pub ensop2db: bool @ 6,
+        /// Enable SOP'_DEBUG (SOP prime debug) packets, false for ignore
+        pub ensop1db: bool @ 5,
+        /// Sent BIST Mode 01s pattern for testing
+        pub bist_mode2: bool @ 4,
+        /// Self clearing bit to flush the content of the receive FIFO
+        pub rx_flush: bool [write_only] @ 2,
+        /// Enable SOP'' (SOP double prime) packets, false for ignore
+        pub ensop2: bool @ 1,
+        /// Enable SOP' (SOP prime) packets, false for ignore
+        pub ensop1: bool @ 1,
     }
 }
 
@@ -327,7 +363,27 @@ impl Default for Control1 {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
     pub struct Control2(pub u8): Debug, FromRaw, IntoRaw {
+        /// * `00`: Don’t go into the DISABLE state after one cycle of toggle
+        /// * `01`: Wait between toggle cycles for tDIS time of 40 ms
+        /// * `10`: Wait between toggle cycles for tDIS time of 80 ms
+        /// * `11`: Wait between toggle cycles for tDIS time of 160 ms
+        pub tog_save_pwr: u8 @ 6..=7,
 
+        /// * `true`: When TOGGLE=1 only Rd values will cause the TOGGLE state machine to stop toggling and trigger the I_TOGGLE interrupt
+        /// * `false`: When TOGGLE=1, Rd and Ra values will cause the TOGGLE state machine to stop toggling
+        pub rog_rd_only: bool @ 5,
+
+        /// Enable Wake Detection functionality if the power state is correct
+        pub wake_end: bool @ 3,
+
+        /// * `11`: Enable SRC polling functionality if TOGGLE=1
+        /// * `10`: Enable SNK polling functionality if TOGGLE=1
+        /// * `01`: Enable DRP polling functionality if TOGGLE=1
+        /// * `00`: Do Not Use
+        pub mode: u8 @ 1..=2,
+
+        /// Enable DRP, SNK or SRC Toggle autonomous functionality
+        pub toggle: bool @ 0,
     }
 }
 
