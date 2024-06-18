@@ -1,11 +1,11 @@
 use crate::{
-    callback::{CallbackFn, Event as CallbackEvent, Response},
     header::{DataMessageType, Header, SpecificationRevision},
     message::Message,
     pdo::FixedVariableRequestDataObject,
     Instant, PowerRole,
 };
 use defmt::warn;
+use {crate::pdo::PowerDataObject, defmt::Format, heapless::Vec};
 
 pub trait Driver {
     fn init(&mut self);
@@ -17,6 +17,31 @@ pub trait Driver {
     fn send_message(&mut self, header: Header, payload: &[u8]);
 
     fn state(&mut self) -> DriverState;
+}
+
+/// Sink events
+#[derive(Format)]
+pub enum Event {
+    /// Power delivery protocol has changed
+    ProtocolChanged,
+    /// Source capabilities have changed (immediately request power)
+    SourceCapabilitiesChanged(Vec<PowerDataObject, 8>),
+    /// Requested power has been accepted (but not ready yet)
+    PowerAccepted,
+    /// Requested power has been rejected
+    PowerRejected,
+    /// Requested power is now ready
+    PowerReady,
+}
+
+/// Requests made to sink
+#[derive(Format)]
+pub enum Request {
+    RequestPower {
+        /// Index of the desired PowerDataObject
+        index: usize,
+        current: u16,
+    },
 }
 
 /// Driver state
@@ -57,12 +82,10 @@ pub struct Sink<DRIVER> {
 
     /// Specification revision (of last message)
     spec_rev: u8,
-
-    callback: CallbackFn,
 }
 
 impl<DRIVER: Driver> Sink<DRIVER> {
-    pub fn new(driver: DRIVER, callback: CallbackFn) -> Self {
+    pub fn new(driver: DRIVER) -> Self {
         Self {
             driver,
             protocol: Protocol::Usb20,
@@ -71,7 +94,6 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             active_voltage: 5000,
             active_max_current: 900,
             spec_rev: 1,
-            callback,
         }
     }
 
@@ -80,25 +102,30 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         self.update_protocol();
     }
 
-    pub fn poll(&mut self, now: Instant) {
-        // process events from PD controller
-        loop {
-            self.driver.poll(now);
+    /// Call continously until `None` is returned.
+    pub fn poll(&mut self, now: Instant) -> Option<Event> {
+        // poll inner driver
+        self.driver.poll(now);
 
-            let Some(evt) = self.driver.get_event() else {
-                break;
-            };
+        let Some(evt) = self.driver.get_event() else {
+            return None;
+        };
 
-            match evt {
-                DriverEvent::StateChanged => {
-                    if self.update_protocol() {
-                        self.notify(CallbackEvent::ProtocolChanged);
-                    }
-                }
-                DriverEvent::MessageReceived(message) => {
-                    self.handle_msg(message);
+        match evt {
+            DriverEvent::StateChanged => {
+                if self.update_protocol() {
+                    Some(Event::ProtocolChanged)
+                } else {
+                    None
                 }
             }
+            DriverEvent::MessageReceived(message) => self.handle_msg(message),
+        }
+    }
+
+    pub fn request(&mut self, request: Request) {
+        match request {
+            Request::RequestPower { index, current } => self.request_power(current, index),
         }
     }
 
@@ -116,52 +143,46 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         self.protocol != old_protocol
     }
 
-    fn handle_msg(&mut self, message: Message) {
+    fn handle_msg(&mut self, message: Message) -> Option<Event> {
         match message {
-            Message::Accept => self.notify(CallbackEvent::PowerAccepted),
+            Message::Accept => Some(Event::PowerAccepted),
             Message::Reject => {
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
-                self.notify(CallbackEvent::PowerRejected);
+                Some(Event::PowerRejected)
             }
             Message::Ready => {
                 self.active_voltage = self.requested_voltage;
                 self.active_max_current = self.requested_max_current;
                 self.requested_voltage = 0;
                 self.requested_max_current = 0;
-                self.notify(CallbackEvent::PowerReady);
+                Some(Event::PowerReady)
             }
-            Message::SourceCapabilities(caps) => {
-                self.notify(CallbackEvent::SourceCapabilitiesChanged(caps))
+            Message::SourceCapabilities(caps) => Some(Event::SourceCapabilitiesChanged(caps)),
+            Message::VendorDefined(payload) => {
+                match payload {
+                    crate::pdo::VDMHeader::Structured(hdr) => {
+                        warn!(
+                            "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD: {:?}",
+                            hdr.command_type(),
+                            hdr.command()
+                        );
+                    }
+                    crate::pdo::VDMHeader::Unstructured(hdr) => {
+                        warn!(
+                            "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA: {:x}",
+                            hdr.standard_or_vid(),
+                            hdr.data()
+                        );
+                    }
+                }
+                None
             }
-            Message::VendorDefined(payload) => match payload {
-                crate::pdo::VDMHeader::Structured(hdr) => {
-                    warn!(
-                        "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD: {:?}",
-                        hdr.command_type(),
-                        hdr.command()
-                    );
-                }
-                crate::pdo::VDMHeader::Unstructured(hdr) => {
-                    warn!(
-                        "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA: {:x}",
-                        hdr.standard_or_vid(),
-                        hdr.data()
-                    );
-                }
-            },
             Message::SoftReset => {
                 warn!("UNHANDLED: Soft RESET request.");
+                None
             }
             Message::Unknown => unimplemented!(),
-        }
-    }
-
-    fn notify(&mut self, event: CallbackEvent) {
-        if let Some(response) = (self.callback)(event) {
-            match response {
-                Response::RequestPower { index, current } => self.request_power(current, index),
-            }
         }
     }
 
@@ -215,7 +236,7 @@ pub enum SupplyType {
 }
 
 /// Power deliver protocol
-#[derive(PartialEq, Clone, Copy)]
+#[derive(Format, PartialEq, Clone, Copy)]
 enum Protocol {
     /// No USB PD communication (5V only)
     Usb20,
