@@ -81,9 +81,13 @@ macro_rules! generate_register_accessors {
     };
 }
 
-impl<I2C: Read + Write + WriteRead> Registers<I2C> {
+impl<I2C: Write + WriteRead> Registers<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self { i2c }
+    }
+
+    pub fn write(&mut self, address: u8, bytes: &[u8]) {
+        self.i2c.write(address, bytes).ok();
     }
 
     fn write_register_raw(&mut self, register: u8, value: u8) {
@@ -106,7 +110,7 @@ impl<I2C: Read + Write + WriteRead> Registers<I2C> {
             .is_ok());
     }
 
-    pub fn write_fifo(&mut self, buf: &mut [u8]) {
+    pub fn write_raw(&mut self, buf: &mut [u8]) {
         assert!(self.i2c.write(DEVICE_ADDRESS, buf).is_ok());
     }
 
@@ -465,7 +469,7 @@ impl Default for Mask1 {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
     pub struct Power(pub u8): FromRaw, IntoRaw {
         /// Enable internal oscillator
         pub internal_oscillator: bool @ 3,

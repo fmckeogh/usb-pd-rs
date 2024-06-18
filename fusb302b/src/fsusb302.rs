@@ -1,6 +1,8 @@
 #![allow(non_camel_case_types)]
 
-use crate::pd_msg_type;
+use crate::registers::{
+    Control1, Control3, Mask1, MaskA, MaskB, Power, Registers, Reset, Slice, Switches0, Switches1,
+};
 
 use {
     crate::{
@@ -9,10 +11,12 @@ use {
             maska::*, maskb::*, power::*, reg::*, reset::*, slice::*, status0::*, status1::*,
             switches0::*, switches1::*, token::*,
         },
-        {pd_header, pd_msg_type::*},
+        pd_header, pd_msg_type,
+        pd_msg_type::*,
+        Instant,
     },
-    defmt::debug,
-    embedded_hal::blocking::i2c::{Read, Write, WriteRead},
+    defmt::{debug, trace, warn},
+    embedded_hal::blocking::i2c::{Write, WriteRead},
     fixed_queue::VecDeque,
 };
 
@@ -85,20 +89,6 @@ enum slice {
     slice_sdac_hys_085mv = 0x01 << 6,
     slice_sdac_hys_none = 0x00 << 6,
     slice_sdac_mask = 0x3f << 0,
-}
-
-const control0_host_cur_mask: u8 = 0x03 << 2;
-
-/// FUSB302 register CONTROL0 values
-enum control0 {
-    control0_tx_flush = 0x01 << 6,
-    control0_int_mask = 0x01 << 5,
-    control0_host_cur_no = 0x00 << 2,
-    control0_host_cur_usb_def = 0x01 << 2,
-    control0_host_cur_1p5a = 0x02 << 2,
-    control0_host_cur_3p0a = 0x03 << 2,
-    control0_auto_pre = 0x01 << 1,
-    control0_tx_start = 0x01 << 0,
 }
 
 /// FUSB302 register CONTROL1 values
@@ -313,7 +303,7 @@ pub enum fusb302_state {
 const NUM_MESSAGE_BUF: usize = 4;
 
 pub struct Fsusb302<I2C> {
-    i2c: I2C,
+    i2c: Registers<I2C>,
     /// cc line being measured
     measuring_cc: u8,
 
@@ -340,10 +330,10 @@ pub struct Fsusb302<I2C> {
     timestamp: u32,
 }
 
-impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
+impl<I2C: Write + WriteRead> Fsusb302<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self {
-            i2c,
+            i2c: Registers::new(i2c),
             measuring_cc: 0,
             is_timeout_active: false,
             timeout_expiration: 0,
@@ -362,22 +352,30 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
 
     pub fn init(&mut self) {
         // full reset
-        self.write_register(reg_reset, reset_sw_res as u8 | reset_pd_reset as u8);
+        self.i2c
+            .set_reset(Reset::default().with_pd_reset(true).with_sw_reset(true));
 
         for _ in 0..1_000_000 {
-            cortex_m::asm::nop();
+            core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
         }
 
         // power up everyting except oscillator
-        self.write_register(reg_power, power_pwr_all as u8 & !(power_pwr_int_osc as u8));
+        self.i2c.set_power(
+            Power::default()
+                .with_bandgap_wake(true)
+                .with_measure_block(true)
+                .with_receiver(true),
+        );
         // Disable all CC monitoring
-        self.write_register(reg_switches0, switches0_none);
+        self.i2c.set_switches0(Switches0(0));
+
         // Mask all interrupts
-        self.write_register(reg_mask, mask_m_all as u8);
+        self.i2c.set_mask1(Mask1(mask_m_all as u8));
         // Mask all interrupts
-        self.write_register(reg_maska, maska_m_all as u8);
+        self.i2c.set_mask_a(MaskA(maska_m_all as u8));
+
         // Mask all interrupts (incl. good CRC sent)
-        self.write_register(reg_maskb, maskb_m_all as u8);
+        self.i2c.set_mask_b(MaskB(maskb_m_all as u8));
 
         self.next_message_id = 0;
         self.is_timeout_active = false;
@@ -392,13 +390,13 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
         // could do it automatically.
 
         // BMC threshold: 1.35V with a threshold of 85mV
-        self.write_register(reg_slice, slice_sdac_hys_085mv as u8 | 0x20);
+        self.i2c.set_slice(Slice(slice_sdac_hys_085mv as u8 | 0x20));
 
         self.start_measurement(1);
     }
 
-    pub fn poll(&mut self, timestamp: u32) {
-        self.timestamp = timestamp;
+    pub fn poll(&mut self, now: Instant) {
+        self.timestamp = now.ticks() as u32;
         self.check_for_interrupts();
 
         if (self.has_timeout_expired()) {
@@ -422,14 +420,14 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
         sw0 = sw0 | switches0_pdwn1 as u8 | switches0_pdwn2 as u8;
 
         // test CC
-        self.write_register(reg_switches0, sw0 as u8);
+        self.i2c.set_switches0(Switches0(sw0));
         self.start_timeout(10);
         self.measuring_cc = cc;
     }
 
     fn check_measurement(&mut self) {
-        self.read_register(reg_status0 as u8);
-        let status0 = self.read_register(reg_status0 as u8);
+        let _ = self.i2c.status0();
+        let status0 = self.i2c.status0().0;
         if ((status0 & status0_bc_lvl_mask as u8) == 0) {
             // No CC activity
             self.start_measurement(if self.measuring_cc == 1 { 2 } else { 1 });
@@ -443,34 +441,35 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
     fn check_for_interrupts(&mut self) {
         let mut may_have_message = false;
 
-        let interrupt = self.read_register(reg_interrupt as u8);
-        let interrupta = self.read_register(reg_interrupta as u8);
-        let interruptb = self.read_register(reg_interruptb as u8);
+        let interrupt = self.i2c.interrupt();
+        let interrupta = self.i2c.interrupta();
+        let interruptb = self.i2c.interruptb();
 
-        if ((interrupta & interrupta_i_hardrst as u8) != 0) {
+        if (interrupta.i_hardrst()) {
             debug!("{}: Hard reset\r\n", self.timestamp);
             self.establish_retry_wait();
             return;
         }
-        if ((interrupta & interrupta_i_retryfail as u8) != 0) {
+        if (interrupta.i_retryfail()) {
             debug!("Retry failed");
         }
-        if ((interrupta & interrupta_i_txsent as u8) != 0) {
+        if (interrupta.i_txsent()) {
             debug!("TX ack");
             // turn off internal oscillator if TX FIFO is empty
-            let status1 = self.read_register(reg_status1 as u8);
+            let status1 = self.i2c.status1().0;
             if ((status1 & status1_tx_empty as u8) != 0) {
-                self.write_register(reg_power, power_pwr_all as u8 & !(power_pwr_int_osc as u8));
+                let power = self.i2c.power().with_internal_oscillator(false);
+                self.i2c.set_power(power);
             }
         }
-        if ((interrupt & interrupt_i_activity as u8) != 0) {
+        if (interrupt.i_activity()) {
             may_have_message = true;
         }
-        if ((interrupt & interrupt_i_crc_chk as u8) != 0) {
+        if (interrupt.i_crc_chk()) {
             debug!("{}: CRC ok", self.timestamp);
             may_have_message = true;
         }
-        if ((interruptb & interruptb_i_gcrcsent as u8) != 0) {
+        if (interruptb.i_gcrcsent()) {
             debug!("Good CRC sent");
             may_have_message = true;
         }
@@ -480,8 +479,8 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
     }
 
     fn check_for_msg(&mut self) {
-        while (true) {
-            let status1 = self.read_register(reg_status1 as u8);
+        loop {
+            let status1 = self.i2c.status1().0;
             if ((status1 & status1_rx_empty as u8) == status1_rx_empty as u8) {
                 break;
             }
@@ -490,7 +489,7 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
             let mut payload = self.rx_message_buf[self.rx_message_index];
             self.read_message(&mut header, &mut payload[..]);
 
-            let status0 = self.read_register(reg_status0 as u8);
+            let status0 = self.i2c.status0().0;
             if ((status0 & status0_crc_chk as u8) == 0) {
                 debug!("Invalid CRC");
             } else if (pd_header(header).message_type() == pd_msg_type_ctrl_good_crc) {
@@ -499,11 +498,14 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
                 if (self.state_ != fusb302_state::usb_pd) {
                     self.establish_usb_pd();
                 }
-                self.events.push_front(event {
-                    msg_header: header,
-                    msg_payload: &payload[0] as *const u8,
-                    kind: event_kind::message_received,
-                });
+                self.events
+                    .push_front(event {
+                        msg_header: header,
+                        msg_payload: &payload[0] as *const u8,
+                        kind: event_kind::message_received,
+                    })
+                    .ok()
+                    .unwrap();
                 self.rx_message_index += 1;
                 if (self.rx_message_index >= NUM_MESSAGE_BUF) {
                     self.rx_message_index = 0;
@@ -519,11 +521,14 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
         self.init();
         self.state_ = fusb302_state::usb_retry_wait;
         self.start_timeout(500);
-        self.events.push_front(event {
-            kind: event_kind::state_changed,
-            msg_header: 0,
-            msg_payload: &0u8 as *const u8,
-        });
+        self.events
+            .push_front(event {
+                kind: event_kind::state_changed,
+                msg_header: 0,
+                msg_payload: &0u8 as *const u8,
+            })
+            .ok()
+            .unwrap();
     }
 
     fn establish_usb_20(&mut self) {
@@ -532,33 +537,33 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
 
     fn establish_usb_pd_wait(&mut self, cc: u8) {
         // Enable automatic retries
-        self.write_register(
-            reg_control3,
-            control3_auto_retry as u8 | control3_3_retries as u8,
-        );
+        self.i2c
+            .set_control3(Control3::default().with_auto_retry(true).with_n_retries(3));
+
         // Enable interrupts for CC activity and CRC_CHK
-        self.write_register(
-            reg_mask,
+        self.i2c.set_mask1(Mask1(
             mask_m_all as u8 & !(mask_m_activity as u8 | mask_m_crc_chk as u8),
-        );
+        ));
+
         // Unmask all interrupts (toggle done, hard reset, tx sent etc.)
-        self.write_register(reg_maska, maska_m_none as u8);
+        self.i2c.set_mask_a(MaskA::default());
+
         // Enable good CRC sent interrupt
-        self.write_register(reg_maskb, maskb_m_none);
+        self.i2c.set_mask_b(MaskB::default());
+
         // Enable pull down and CC monitoring
-        self.write_register(
-            reg_switches0,
-            switches0_pdwn1 as u8
+        self.i2c.set_switches0(Switches0(
+            (switches0_pdwn1 as u8
                 | switches0_pdwn2 as u8
                 | (if cc == 1 {
                     switches0_meas_cc1 as u8
                 } else {
                     switches0_meas_cc2 as u8
-                }),
-        );
+                })),
+        ));
+
         // Configure: auto CRC and BMC transmit on CC pin
-        self.write_register(
-            reg_switches1,
+        self.i2c.set_switches1(Switches1(
             switches1_specrev_rev_2_0 as u8
                 | switches1_auto_crc as u8
                 | (if cc == 1 {
@@ -566,7 +571,7 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
                 } else {
                     switches1_txcc2 as u8
                 }),
-        );
+        ));
 
         self.state_ = fusb302_state::usb_pd_wait;
         self.start_timeout(300);
@@ -619,12 +624,14 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
     fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) -> usize {
         // Read token and header
         let mut buf = [0u8; 3];
-        self.pd_ctrl_read(reg_fifos as u8, &mut buf);
+        self.i2c.read_fifo(&mut buf);
 
         // Check for SOP token
         if ((buf[0] & 0xe0) != 0xe0) {
             // Flush RX FIFO
-            self.write_register(reg_control1, control1_rx_flush as u8);
+            self.i2c
+                .set_control1(Control1::default().with_rx_flush(true));
+            warn!("Flushed RX buffer");
             return 0;
         }
 
@@ -634,19 +641,20 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
 
         // Get payload and CRC length
         let len = pd_header(*header).num_data_objs() * 4;
-        self.pd_ctrl_read(reg_fifos as u8, &mut payload[..len + 4]);
+        self.i2c.read_fifo(&mut payload[..len + 4]);
 
         return len;
     }
 
-    fn send_header_message(&mut self, msg_type: pd_msg_type) {
-        let header = pd_header::create_ctrl(msg_type, 1);
-        self.send_message(header.0, &[]);
-    }
-
     pub fn send_message(&mut self, mut header: u16, payload: &[u8]) {
         // Enable internal oscillator
-        self.write_register(reg_power, power_pwr_all as u8);
+        self.i2c.set_power(
+            Power::default()
+                .with_bandgap_wake(true)
+                .with_internal_oscillator(true)
+                .with_measure_block(true)
+                .with_receiver(true),
+        );
 
         let payload_len = pd_header(header).num_data_objs() * 4;
         header |= (self.next_message_id << 9);
@@ -679,29 +687,11 @@ impl<I2C: Write + Read + WriteRead> Fsusb302<I2C> {
 
         debug!("buf_len: {}", n);
 
-        self.pd_ctrl_write(&mut buf[..n]);
+        self.i2c.write_raw(&mut buf[..n]);
 
         self.next_message_id += 1;
         if (self.next_message_id == 8) {
             self.next_message_id = 0;
         }
-    }
-
-    fn read_register(&mut self, r: u8) -> u8 {
-        let mut val = [0];
-        self.pd_ctrl_read(r, &mut val);
-        val[0]
-    }
-
-    fn write_register(&mut self, r: reg, value: u8) {
-        self.pd_ctrl_write(&mut [r as u8, value]);
-    }
-
-    pub fn pd_ctrl_read(&mut self, reg: u8, data: &mut [u8]) {
-        self.i2c.write_read(0x22, &[reg], data).ok();
-    }
-
-    pub fn pd_ctrl_write(&mut self, data: &mut [u8]) {
-        self.i2c.write(0x22, data).ok();
     }
 }

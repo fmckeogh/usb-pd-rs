@@ -14,6 +14,3 @@ paste = "1.0.12"
 proc-bitfield = "0.2.2"
 
 usb-pd = { path = "../usb-pd" }
-stm32f0xx-hal = { version = "0.18.0", features = ["rt", "stm32f030", "stm32f030x4"] }
-bitbang-hal = "0.3.2"
-cortex-m = "0.7.7"
