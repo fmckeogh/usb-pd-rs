@@ -1,28 +1,21 @@
-use {crate::pdo::PowerDataObject, defmt::Format};
+use {crate::pdo::PowerDataObject, defmt::Format, heapless::Vec};
 
 /// Type of the user's callback function
-pub type Function = &'static dyn Fn(Event) -> Option<Response>;
+pub type CallbackFn = &'static dyn Fn(Event) -> Option<Response>;
 
+/// Callback event types
 #[derive(Format)]
 pub enum Event {
-    /// Protocol changed
-    ProtocolChanged { protocol: Protocol },
-
-    /// Source capabilities have changed
-    ///
-    /// Requires immediate response
-    SourceCapabilities {
-        source_capabilities: [Option<PowerDataObject>; 10],
-    },
-
-    /// Requested power has been accepted
+    /// Power delivery protocol has changed
+    ProtocolChanged,
+    /// Source capabilities have changed (immediately request power)
+    SourceCapabilitiesChanged(Vec<PowerDataObject, 8>),
+    /// Requested power has been accepted (but not ready yet)
     PowerAccepted,
-
     /// Requested power has been rejected
     PowerRejected,
-
-    /// Requested power is ready
-    PowerReady { active_voltage_mv: u16 },
+    /// Requested power is now ready
+    PowerReady,
 }
 
 #[derive(Format)]
@@ -35,7 +28,7 @@ pub enum Protocol {
 
 #[derive(Format)]
 pub enum Response {
-    Request {
+    RequestPower {
         /// Index of the desired PowerDataObject
         index: usize,
         current: u16,

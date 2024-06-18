@@ -128,6 +128,7 @@ bitfield! {
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
     pub struct FixedVariableRequestDataObject(pub u32): FromRaw, IntoRaw {
+        /// Valid range 1..=14
         pub object_position: u8 @ 28..=31,
         pub giveback_flag: bool @ 27,
         pub capability_mismatch: bool @ 26,

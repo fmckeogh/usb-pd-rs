@@ -14,7 +14,7 @@ use {
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
         message::Message,
-        sink::{Driver as SinkDriver, Event, State},
+        sink::{Driver as SinkDriver, DriverEvent, State},
         token::Token,
         CcPin, Duration, Instant,
     },
@@ -44,7 +44,7 @@ pub struct Fusb302b<I2C> {
     rx_message_index: usize,
 
     /// Queue of event that have occurred
-    events: Queue<Event, 4>,
+    events: Queue<DriverEvent, 4>,
 
     /// Current attachment state
     state_: State,
@@ -126,7 +126,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         }
     }
 
-    fn get_event(&mut self) -> Option<Event> {
+    fn get_event(&mut self) -> Option<DriverEvent> {
         self.events.dequeue()
     }
 
@@ -142,7 +142,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
 
         let payload_len = header.num_objects() * 4;
 
-        header.set_message_id(self.next_message_id as u8);
+        header.set_message_id(self.next_message_id);
 
         let mut buf = [0u8; 40];
 
@@ -154,11 +154,7 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         buf[4] = Token::Sop2 as u8;
         buf[5] = Token::PackSym as u8 | (payload_len + 2) as u8;
         header.to_bytes(&mut buf[6..=7]);
-        if payload_len > 0 {
-            for i in 0..payload.len() {
-                buf[8 + i] = payload[i];
-            }
-        }
+        buf[8..(payload.len() + 8)].copy_from_slice(payload);
         let mut n = 8 + payload_len;
         buf[n] = Token::JamCrc as u8;
         n += 1;
@@ -168,8 +164,6 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
         n += 1;
         buf[n] = Token::TxOn as u8;
         n += 1;
-
-        debug!("buf_len: {}", n);
 
         self.registers.write_raw(&mut buf[..n]);
 
@@ -203,7 +197,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
 
         // BMC threshold: 1.35V with a threshold of 85mV
         self.registers
-            .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(01));
+            .set_slice(Slice::default().with_sdac(0x20).with_sda_hys(0b01));
 
         self.start_measurement(CcPin::CC1);
     }
@@ -295,7 +289,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
                 trace!("{:?}", message);
 
                 self.events
-                    .enqueue(Event::MessageReceived(message))
+                    .enqueue(DriverEvent::MessageReceived(message))
                     .ok()
                     .unwrap();
                 self.rx_message_index += 1;
@@ -313,7 +307,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.init();
         self.state_ = State::UsbRetryWait;
         self.timeout.start(Duration::millis(500));
-        self.events.enqueue(Event::StateChanged).ok().unwrap();
+        self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
     }
 
     fn establish_usb_20(&mut self) {
@@ -375,10 +369,10 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         self.state_ = State::UsbPd;
         self.timeout.cancel();
         debug!("USB PD comm");
-        self.events.enqueue(Event::StateChanged).ok();
+        self.events.enqueue(DriverEvent::StateChanged).ok();
     }
 
-    fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) -> usize {
+    fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) {
         // Read token and header
         let mut buf = [0u8; 3];
         self.registers.read_fifo(&mut buf);
@@ -389,7 +383,7 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
             self.registers
                 .set_control1(Control1::default().with_rx_flush(true));
             warn!("Flushed RX buffer");
-            return 0;
+            return;
         }
 
         let header_buf = header as *mut u16 as *mut u8;
@@ -399,7 +393,5 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
         // Get payload and CRC length
         let len = Header(*header).num_objects() * 4;
         self.registers.read_fifo(&mut payload[..len + 4]);
-
-        return len;
     }
 }
