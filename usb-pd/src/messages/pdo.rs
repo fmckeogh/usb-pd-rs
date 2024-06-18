@@ -146,3 +146,61 @@ impl FixedVariableRequestDataObject {
         LittleEndian::write_u32(buf, self.0);
     }
 }
+
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct BatteryRequestDataObject(pub u32): FromRaw, IntoRaw {
+        /// Object position (0000b and 1110b…1111b are Reserved and Shall Not be used)
+        pub object_position: u8 @ 28..=31,
+        /// GiveBackFlag = 0
+        pub giveback_flag: bool @ 27,
+        /// Capability mismatch
+        pub capability_mismatch: bool @ 26,
+        /// USB communications capable
+        pub usb_communications_capable: bool @ 25,
+        /// No USB Suspend
+        pub no_usb_suspend: bool @ 24,
+        /// Unchunked extended messages supported
+        pub unchunked_extended_messages_supported: bool @ 23,
+        /// EPR mode capable
+        pub epr_mode_capable: bool @ 22,
+        /// Operating power in 250mW units
+        pub operating_power: u16 @ 10..=19,
+        /// Maximum operating power in 250mW units
+        pub maximum_operating_power: u16 @ 0..=9,
+    }
+}
+
+impl BatteryRequestDataObject {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+}
+
+bitfield!(
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct PPSRequestDataObject(pub u32): FromRaw, IntoRaw {
+        /// Object position (0000b and 1110b…1111b are Reserved and Shall Not be used)
+        pub object_position: u8 @ 28..=31,
+        /// Capability mismatch
+        pub capability_mismatch: bool @ 26,
+        /// USB communications capable
+        pub usb_communications_capable: bool @ 25,
+        /// No USB Suspend
+        pub no_usb_suspend: bool @ 24,
+        /// Unchunked extended messages supported
+        pub unchunked_extended_messages_supported: bool @ 23,
+        /// EPR mode capable
+        pub epr_mode_capable: bool @ 22,
+        /// Output voltage in 20mV units
+        pub output_voltage: u16 @ 9..=20,
+        /// Operating current in 50mA units
+        pub operating_current: u16 @ 0..=6,
+    }
+);
+
+impl PPSRequestDataObject {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+}
