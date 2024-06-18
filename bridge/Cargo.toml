@@ -17,3 +17,4 @@ embedded-hal = "0.2.7"
 bitbang-hal = "0.3.2"
 
 fusb302b = { path = "../fusb302b" }
+usb-pd = { path = "../usb-pd" }
