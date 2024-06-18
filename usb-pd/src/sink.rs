@@ -2,8 +2,11 @@ use {
     crate::{
         header::{DataMessageType, Header, SpecificationRevision},
         message::Message,
-        pdo::{FixedVariableRequestDataObject, PowerDataObject, VDMHeader},
-        PowerRole,
+        pdo::{
+            self, CertStatVDO, FixedVariableRequestDataObject, PowerDataObject, ProductVDO,
+            UFPTypeVDO, VDMHeader, VDMIdentityHeader,
+        },
+        DataRole, PowerRole,
     },
     core::future::Future,
     defmt::{warn, Format},
@@ -50,6 +53,15 @@ pub enum Request {
         index: usize,
         current: u16,
     },
+    REQDiscoverIdentity,
+    ACKDiscoverIdentity {
+        identity: VDMIdentityHeader,
+        cert_stat: CertStatVDO,
+        product: ProductVDO,
+        product_type_ufp: UFPTypeVDO,
+        // Does not exist yet...        product_type_dfp: Option<DFP>,
+    },
+    REQDiscoverSVIDS,
 }
 
 /// Driver state
@@ -127,6 +139,97 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     pub async fn request(&mut self, request: Request) {
         match request {
             Request::RequestPower { index, current } => self.request_power(current, index).await,
+            Request::ACKDiscoverIdentity {
+                identity,
+                cert_stat,
+                product,
+                product_type_ufp,
+                //product_type_dfp,
+            } => {
+                debug!("ACKDiscoverIdentity");
+                // The size of this array will actually change depending on data...
+                // TODO: Fix this!
+                let mut payload = [0; 5 * 4];
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::VendorDefined as u8)
+                    .with_num_objects(5) // 5 VDOs, vdm header, id header, cert, product, UFP product type
+                    .with_port_data_role(DataRole::Ufp)
+                    .with_port_power_role(PowerRole::Sink)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev));
+
+                let vdm_header_vdo = pdo::VDMHeader::Structured(
+                    pdo::VDMHeaderStructured(0)
+                        .with_command(pdo::VDMCommand::DiscoverIdentity)
+                        .with_command_type(pdo::VDMCommandType::ResponderACK)
+                        .with_object_position(0) // 0 Must be used for descover identity
+                        .with_standard_or_vid(0xff00) // PD SID must be used with descover identity
+                        .with_vdm_type(pdo::VDMType::Structured)
+                        .with_vdm_version_major(pdo::VDMVersionMajor::Version2x.into())
+                        .with_vdm_version_minor(pdo::VDMVersionMinor::Version20.into()),
+                );
+                vdm_header_vdo.to_bytes(&mut payload[0..4]);
+                identity.to_bytes(&mut payload[4..8]);
+                cert_stat.to_bytes(&mut payload[8..12]);
+                product.to_bytes(&mut payload[12..16]);
+                product_type_ufp.to_bytes(&mut payload[16..20]);
+                // if let Some(product_type_dfp) = product_type_dfp {
+                //     // 20..24 are padding bytes
+                //     product_type_dfp.to_bytes(&mut payload[24..32]);
+                // }
+                debug!("Sending VDM {:x}", payload);
+                self.driver.send_message(header, &payload);
+                debug!("Sent VDM");
+            }
+            Request::REQDiscoverSVIDS => {
+                debug!("REQDiscoverSVIDS");
+                let mut payload = [0; 4];
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::VendorDefined as u8)
+                    .with_num_objects(1) // 1 VDO, vdm header
+                    .with_port_data_role(DataRole::Ufp)
+                    .with_port_power_role(PowerRole::Sink)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev));
+
+                let vdm_header_vdo = pdo::VDMHeader::Structured(
+                    pdo::VDMHeaderStructured(0)
+                        .with_command(pdo::VDMCommand::DiscoverSVIDS)
+                        .with_command_type(pdo::VDMCommandType::InitiatorREQ)
+                        .with_object_position(0) // 0 Must be used for discover SVIDS
+                        .with_standard_or_vid(0xff00) // PD SID must be used with discover SVIDS
+                        .with_vdm_type(pdo::VDMType::Structured)
+                        .with_vdm_version_major(pdo::VDMVersionMajor::Version10.into())
+                        .with_vdm_version_minor(pdo::VDMVersionMinor::Version20.into()),
+                );
+                vdm_header_vdo.to_bytes(&mut payload[0..4]);
+                debug!("Sending VDM {:x}", payload);
+                self.driver.send_message(header, &payload);
+                debug!("Sent VDM");
+            }
+            Request::REQDiscoverIdentity => {
+                debug!("REQDiscoverIdentity");
+                let mut payload = [0; 4];
+                let header = Header(0)
+                    .with_message_type_raw(DataMessageType::VendorDefined as u8)
+                    .with_num_objects(1) // 1 VDO, vdm header
+                    .with_port_data_role(DataRole::Ufp)
+                    .with_port_power_role(PowerRole::Sink)
+                    .with_spec_revision(SpecificationRevision::from(self.spec_rev));
+
+                let vdm_header_vdo = pdo::VDMHeader::Structured(
+                    pdo::VDMHeaderStructured(0)
+                        .with_command(pdo::VDMCommand::DiscoverIdentity)
+                        .with_command_type(pdo::VDMCommandType::InitiatorREQ)
+                        .with_object_position(0) // 0 Must be used for descover identity
+                        .with_standard_or_vid(0xff00) // PD SID must be used with descover identity
+                        .with_vdm_type(pdo::VDMType::Structured)
+                        .with_vdm_version_major(pdo::VDMVersionMajor::Version10.into())
+                        .with_vdm_version_minor(pdo::VDMVersionMinor::Version20.into()),
+                );
+                vdm_header_vdo.to_bytes(&mut payload[0..4]);
+                debug!("Sending VDM {:x}", payload);
+                self.driver.send_message(header, &payload);
+                debug!("Sent VDM");
+            }
         }
     }
 
