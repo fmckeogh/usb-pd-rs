@@ -16,7 +16,7 @@ use {
     fusb302b::Fusb302b,
     panic_probe as _,
     usb_pd::{
-        pdo::PowerDataObject,
+        messages::pdo::PowerDataObject,
         sink::{Event, Request, Sink},
     },
 };
