@@ -631,6 +631,7 @@ dependencies = [
  "embedded-hal-async",
  "fusb302b",
  "panic-probe",
+ "uom",
  "usb-pd",
 ]
 

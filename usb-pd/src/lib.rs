@@ -1,5 +1,8 @@
 #![no_std]
 
+#[macro_use]
+extern crate uom;
+
 pub mod header;
 pub mod messages;
 pub mod sink;
