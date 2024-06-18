@@ -3,6 +3,7 @@
 pub mod header;
 pub mod message;
 pub mod pdo;
+pub mod vdo;
 pub mod sink;
 pub mod source;
 pub mod token;
