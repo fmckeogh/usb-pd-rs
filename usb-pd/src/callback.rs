@@ -1,4 +1,4 @@
-use {defmt::Format, usb_pd::pdo::PowerDataObject};
+use {crate::pdo::PowerDataObject, defmt::Format};
 
 /// Type of the user's callback function
 pub type Function = &'static dyn Fn(Event) -> Option<Response>;
