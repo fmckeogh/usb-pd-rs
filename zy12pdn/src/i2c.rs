@@ -1,8 +1,7 @@
 use {
     embassy_time::{Duration, Ticker},
     embedded_hal::digital::{InputPin, OutputPin},
-    embedded_hal_async::i2c::Operation,
-    embedded_hal_async::i2c::{ErrorType, I2c, NoAcknowledgeSource},
+    embedded_hal_async::i2c::{ErrorType, I2c, NoAcknowledgeSource, Operation},
 };
 
 /// Bit banging I2C device
@@ -173,28 +172,49 @@ where
 }
 
 impl<SCL: OutputPin, SDA: OutputPin + InputPin> I2c for I2cBB<SCL, SDA> {
+    /// Execute the provided operations on the I2C bus as a single transaction.
+    ///
+    /// Transaction contract:
+    /// - Before executing the first operation an ST is sent automatically. This
+    ///   is followed by SAD+R/W as appropriate.
+    /// - Data from adjacent operations of the same type are sent after each
+    ///   other without an SP or SR.
+    /// - Between adjacent operations of a different type an SR and SAD+R/W is
+    ///   sent.
+    /// - After executing the last operation an SP is sent automatically.
+    /// - If the last operation is a `Read` the master does not send an
+    ///   acknowledge for the last byte.
+    ///
+    /// - `ST` = start condition
+    /// - `SAD+R/W` = slave address followed by bit 1 to indicate reading or 0
+    ///   to indicate writing
+    /// - `SR` = repeated start condition
+    /// - `SP` = stop condition
     async fn transaction(
         &mut self,
         address: u8,
         operations: &mut [Operation<'_>],
     ) -> Result<(), Self::Error> {
-        // ST = start condition
-        // SAD+R/W = slave address followed by bit 1 to indicate reading or 0 to indicate writing
-        // SR = repeated start condition
-        // SP = stop condition
+        #[derive(Clone, Copy, PartialEq, Eq)]
+        enum OpKind {
+            Read,
+            Write,
+        }
 
-        // Before executing the first operation an ST is sent automatically. This is followed by SAD+R/W as appropriate.
-        // ST
+        // Before executing the first operation an ST is sent automatically. This is
+        // followed by SAD+R/W as appropriate. ST
         self.i2c_start().await?;
 
-        let mut last_was_read = None;
+        let mut last_op = None;
 
         let last_op_index = operations.len() - 1;
         for (index, op) in operations.iter_mut().enumerate() {
             match op {
                 Operation::Read(buf) => {
-                    // Data from adjacent operations of the same type are sent after each other without an SP or SR. Between adjacent operations of a different type an SR and SAD+R/W is sent.
-                    if last_was_read != Some(true) {
+                    // Data from adjacent operations of the same type are sent after each other
+                    // without an SP or SR. Between adjacent operations of a different type an SR
+                    // and SAD+R/W is sent.
+                    if last_op != Some(OpKind::Read) {
                         // SR
                         self.i2c_start().await?;
 
@@ -203,13 +223,14 @@ impl<SCL: OutputPin, SDA: OutputPin + InputPin> I2c for I2cBB<SCL, SDA> {
                         self.check_ack().await?;
                     }
 
-                    // If the last operation is a Read the master does not send an acknowledge for the last byte.
+                    // If the last operation is a Read the master does not send an acknowledge for
+                    // the last byte.
                     self.read_from_slave(buf, index == last_op_index).await?;
 
-                    last_was_read = Some(true);
+                    last_op = Some(OpKind::Read);
                 }
                 Operation::Write(buf) => {
-                    if let Some(false) = last_was_read {
+                    if last_op != Some(OpKind::Read) {
                         // SR
                         self.i2c_start().await?;
 
@@ -220,7 +241,7 @@ impl<SCL: OutputPin, SDA: OutputPin + InputPin> I2c for I2cBB<SCL, SDA> {
 
                     self.write_to_slave(buf).await?;
 
-                    last_was_read = Some(false);
+                    last_op = Some(OpKind::Write);
                 }
             }
         }
@@ -236,7 +257,7 @@ impl<SCL: OutputPin, SDA: OutputPin + InputPin> ErrorType for I2cBB<SCL, SDA> {
 }
 
 /// I2C error
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, defmt::Format)]
 pub enum Error {
     Bus,
     NoAck,
