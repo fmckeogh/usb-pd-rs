@@ -6,7 +6,7 @@
 use {
     crate::DEVICE_ADDRESS,
     defmt::Format,
-    embedded_hal::blocking::i2c::{Write, WriteRead},
+    embedded_hal_async::i2c::I2c,
     proc_bitfield::bitfield,
     usb_pd::{DataRole, PowerRole},
 };
@@ -17,8 +17,8 @@ pub struct Registers<I2C> {
 
 macro_rules! generate_register_read {
     ($reg:ident, $fn:ident) => {
-        pub fn $fn(&mut self) -> $reg {
-            self.read_register_raw(Register::$reg as u8).into()
+        pub async fn $fn(&mut self) -> $reg {
+            self.read_register_raw(Register::$reg as u8).await.into()
         }
     };
 }
@@ -26,8 +26,8 @@ macro_rules! generate_register_read {
 macro_rules! generate_register_write {
     ($reg:ident, $fn:ident) => {
         paste::item! {
-            pub fn [<set_ $fn>](&mut self, value: $reg) {
-                self.write_register_raw(Register::$reg as u8, value.0);
+            pub async fn [<set_ $fn>](&mut self, value: $reg) {
+                self.write_register_raw(Register::$reg as u8, value.0).await;
             }
         }
     };
@@ -36,8 +36,8 @@ macro_rules! generate_register_write {
 macro_rules! generate_register_clear {
     ($reg:ident, $fn:ident) => {
         paste::item! {
-            pub fn [<clear_ $fn>](&mut self) {
-                self.write_register_raw(Register::$reg as u8, $reg::default().0);
+            pub async fn [<clear_ $fn>](&mut self) {
+                self.write_register_raw(Register::$reg as u8, $reg::default().0).await;
             }
         }
     };
@@ -82,33 +82,38 @@ macro_rules! generate_register_accessors {
     };
 }
 
-impl<I2C: Write + WriteRead> Registers<I2C> {
+impl<I2C: I2c> Registers<I2C> {
     pub fn new(i2c: I2C) -> Self {
         Self { i2c }
     }
 
-    fn write_register_raw(&mut self, register: u8, value: u8) {
-        assert!(self.i2c.write(DEVICE_ADDRESS, &[register, value]).is_ok());
+    async fn write_register_raw(&mut self, register: u8, value: u8) {
+        self.i2c
+            .write(DEVICE_ADDRESS, &[register, value])
+            .await
+            .unwrap();
     }
 
-    fn read_register_raw(&mut self, register: u8) -> u8 {
+    async fn read_register_raw(&mut self, register: u8) -> u8 {
         let mut buffer = [0u8];
-        assert!(self
+        (self
             .i2c
             .write_read(DEVICE_ADDRESS, &[register], &mut buffer)
-            .is_ok());
+            .await
+            .unwrap());
         buffer[0]
     }
 
-    pub fn read_fifo(&mut self, buf: &mut [u8]) {
-        assert!(self
+    pub async fn read_fifo(&mut self, buf: &mut [u8]) {
+        (self
             .i2c
             .write_read(DEVICE_ADDRESS, &[Register::Fifo as u8], buf)
-            .is_ok());
+            .await
+            .unwrap());
     }
 
-    pub fn write_raw(&mut self, buf: &mut [u8]) {
-        assert!(self.i2c.write(DEVICE_ADDRESS, buf).is_ok());
+    pub async fn write_raw(&mut self, buf: &mut [u8]) {
+        (self.i2c.write(DEVICE_ADDRESS, buf).await.unwrap());
     }
 
     generate_register_accessors!(
