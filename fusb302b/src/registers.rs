@@ -3,9 +3,10 @@
 //! Setters/getters/clearers generated using macros, `Default` for each register is its reset value.
 
 use {
-    crate::{DataRole, Fusb302b, PowerRole, DEVICE_ADDRESS},
+    crate::{callback::Event, Fusb302b, DEVICE_ADDRESS},
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
     proc_bitfield::bitfield,
+    usb_pd::{DataRole, PowerRole},
 };
 
 macro_rules! generate_register_read {
@@ -75,7 +76,30 @@ macro_rules! generate_register_accessors {
     };
 }
 
-impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
+impl<I2C: Read + Write + WriteRead, F: FnMut(Event) -> ()> Fusb302b<I2C, F> {
+    fn write_register_raw(&mut self, register: u8, value: u8) {
+        self.i2c.write(DEVICE_ADDRESS, &[register, value]).ok();
+    }
+
+    fn read_register_raw(&mut self, register: u8) -> u8 {
+        let mut buffer = [0u8];
+        self.i2c
+            .write_read(DEVICE_ADDRESS, &[register], &mut buffer)
+            .ok();
+        buffer[0]
+    }
+
+    pub fn read_fifo(&mut self, buf: &mut [u8]) {
+        self.i2c
+            .write_read(DEVICE_ADDRESS, &[Register::Fifo as u8], buf)
+            .ok();
+    }
+
+    pub fn write_fifo(&mut self, buf: &mut [u8]) {
+        buf[0] = Register::Fifo as u8;
+        self.i2c.write(DEVICE_ADDRESS, buf).ok();
+    }
+
     generate_register_accessors!(
         (DeviceId, device_id, r),
         (Switches0, switches0, rw),
@@ -101,17 +125,6 @@ impl<I2C: Read + Write + WriteRead> Fusb302b<I2C> {
         (Status1, status1, r),
         (Interrupt, interrupt, rc),
     );
-
-    pub fn read_fifo(&mut self, buf: &mut [u8]) {
-        self.i2c
-            .write_read(DEVICE_ADDRESS, &[Register::Fifo as u8], buf)
-            .ok();
-    }
-
-    pub fn write_fifo(&mut self, buf: &mut [u8]) {
-        buf[0] = Register::Fifo as u8;
-        self.i2c.write(DEVICE_ADDRESS, buf).ok();
-    }
 }
 
 enum Register {

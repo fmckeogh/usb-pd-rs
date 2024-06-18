@@ -1,20 +1,21 @@
 #![no_main]
 #![no_std]
 
-use {core::panic::PanicInfo, rtic::app};
+use {fusb302b::callback::Event, log::trace, rtic::app};
 
-mod log;
+mod logging;
 mod rgb;
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
     use {
         crate::{
-            log::init_log,
+            callback,
+            logging::init_log,
             rgb::{Color, Rgb},
         },
         bitbang_hal::i2c::I2cBB,
-        fusb302b::Fusb302b,
+        fusb302b::{callback::Event, Fusb302b},
         stm32f0xx_hal::{
             gpio::{
                 gpioa::{self, PA10, PA5, PA6, PA7, PA9},
@@ -33,7 +34,10 @@ mod app {
     #[local]
     struct Local {
         led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
-        pd: Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>,
+        pd: Fusb302b<
+            I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>,
+            fn(Event) -> (),
+        >,
     }
 
     #[monotonic(binds = SysTick, default = true)]
@@ -74,7 +78,7 @@ mod app {
             let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
             let i2c = I2cBB::new(scl, sda, clk);
 
-            Fusb302b::new(i2c)
+            Fusb302b::new(i2c, callback as fn(_) -> ())
         };
 
         pd.init(monotonics::now());
@@ -92,7 +96,11 @@ mod app {
     }
 }
 
+fn callback(_event: Event) {
+    trace!("callback");
+}
+
 #[panic_handler]
-fn panic_handler(_: &PanicInfo) -> ! {
+fn panic_handler(_: &core::panic::PanicInfo) -> ! {
     loop {}
 }
