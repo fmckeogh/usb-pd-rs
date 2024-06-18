@@ -3,7 +3,11 @@
 pub mod header;
 pub mod message;
 pub mod pdo;
+pub mod sink;
+pub mod source;
 pub mod token;
+
+pub type Instant = fugit::Instant<u64, 1, 1000>;
 
 #[derive(Clone, Copy)]
 pub enum CcPin {
@@ -58,18 +62,3 @@ impl From<DataRole> for bool {
         }
     }
 }
-
-pub struct Event;
-pub struct Message;
-
-pub trait SinkDriver {
-    fn init() -> Self;
-
-    fn poll(&mut self);
-
-    fn get_event(&mut self) -> Option<Event>;
-
-    fn send_message(&mut self, message: Message);
-}
-
-pub trait SourceDriver {}
