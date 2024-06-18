@@ -4,13 +4,13 @@ pub mod header;
 pub mod message;
 pub mod pdo;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum CcPin {
     CC1,
     CC2,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum PowerRole {
     Source,
     Sink,
@@ -34,7 +34,7 @@ impl From<PowerRole> for bool {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum DataRole {
     Ufp,
     Dfp,

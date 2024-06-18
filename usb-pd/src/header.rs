@@ -6,7 +6,7 @@ use {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Header(pub u16): Debug, FromRaw, IntoRaw {
+    pub struct Header(pub u16): FromRaw, IntoRaw {
         pub extended: bool @ 15,
         pub num_objects: u8 @ 12..=14,
         pub message_id: u8 @ 9..=11,
@@ -33,7 +33,6 @@ impl Header {
     }
 }
 
-#[derive(Debug)]
 pub enum SpecificationRevision {
     R1_0,
     R2_0,
@@ -61,13 +60,13 @@ impl From<SpecificationRevision> for u8 {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum MessageType {
     Control(ControlMessageType),
     Data(DataMessageType),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum ControlMessageType {
     GoodCRC = 0b0_0001,
     GotoMin = 0b0_0010,
@@ -128,7 +127,7 @@ impl From<u8> for ControlMessageType {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum DataMessageType {
     SourceCapabilities = 0b0_0001,
     Request = 0b0_0010,

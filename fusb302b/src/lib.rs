@@ -8,10 +8,10 @@ use {
         },
         timeout::Timeout,
     },
+    defmt::{error, trace, Format},
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
     fixed_queue::VecDeque,
     fugit::ExtU64,
-    log::{error, trace},
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
         message::Message,
@@ -58,9 +58,8 @@ impl State {
 }
 
 /// Internal event to be processed after higher priority work is completed
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Format)]
 enum Event {
-    StateChanged,
     MessageReceived(Message),
 }
 
@@ -105,8 +104,24 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
     }
 
     pub fn poll(&mut self, now: Instant) {
-        self.check_interrupts(now);
-        self.check_timeouts(now);
+        loop {
+            self.check_interrupts(now);
+            self.check_timeouts(now);
+
+            if let State::Connected { events } = &mut self.state {
+                if let Some(event) = events.pop_front() {
+                    let callback_event = match event {
+                        Event::MessageReceived(Message::SourceCapabilities(
+                            source_capabilities,
+                        )) => callback::Event::SourceCapabilities {
+                            source_capabilities,
+                        },
+                        _ => todo!(),
+                    };
+                    self.notify_callback(callback_event);
+                }
+            }
+        }
     }
 
     /// Starts the measurement of a CC pin, alternating each time this method is called
@@ -203,14 +218,18 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
         self.state = State::RetryWait {
             timeout: Timeout::new_start(now, 500.millis()),
         };
-        // add event state changed
+        self.notify_callback(callback::Event::ProtocolChanged {
+            protocol: callback::Protocol::_20,
+        });
     }
 
     fn set_state_connected(&mut self) {
         self.state = State::Connected {
             events: VecDeque::new(),
         };
-        // add event state changed
+        self.notify_callback(callback::Event::ProtocolChanged {
+            protocol: callback::Protocol::PD,
+        });
     }
 
     fn check_interrupts(&mut self, now: Instant) {
@@ -291,7 +310,11 @@ impl<I2C: Read + Write + WriteRead, F: FnMut(callback::Event) -> ()> Fusb302b<I2
                 let State::Connected { events } = &mut self.state else { panic!() };
 
                 let msg = Message::parse(header, &payload);
-                events.push_back(Event::MessageReceived(msg)).unwrap();
+                trace!("got msg {:?}", msg);
+                events
+                    .push_back(Event::MessageReceived(msg))
+                    .ok()
+                    .expect("failed to push event");
             }
         }
     }

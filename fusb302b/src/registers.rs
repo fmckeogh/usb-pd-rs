@@ -156,7 +156,7 @@ enum Register {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct DeviceId(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct DeviceId(pub u8): FromRaw, IntoRaw {
         /// Device version ID by Trim or etc
         pub version_id: u8 [read_only] @ 4..=7,
         pub product_id: u8 [read_only] @ 2..=3,
@@ -173,7 +173,7 @@ impl Default for DeviceId {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Switches0(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Switches0(pub u8): FromRaw, IntoRaw {
         /// Apply host pull up current to CC2 pin
         pub pu_en2: bool @ 7,
         /// Apply host pull up current to CC1 pin
@@ -200,7 +200,7 @@ impl Default for Switches0 {
 }
 
 /// Bit used for constructing the GoodCRC acknowledge packet
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub enum Revision {
     R1_0,
     R2_0,
@@ -226,7 +226,7 @@ impl From<Revision> for bool {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Switches1(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Switches1(pub u8): FromRaw, IntoRaw {
         /// Bit used for constructing the GoodCRC acknowledge packet. This bit corresponds to the
         /// Port Power Role bit in the message header if an SOP packet is received.
         pub powerrole: bool [set PowerRole, get PowerRole] @ 7,
@@ -253,7 +253,7 @@ impl Default for Switches1 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Measure(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Measure(pub u8): FromRaw, IntoRaw {
         /// false: MDAC/comparator measurement is controlled by MEAS_CC* bits
         /// true: Measure VBUS with the MDAC/comparator. This requires MEAS_CC* bits to be 0
         pub meas_vbus: bool @ 6,
@@ -281,7 +281,7 @@ impl Default for Measure {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Slice(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Slice(pub u8): FromRaw, IntoRaw {
         /// Adds hysteresis where there are now two thresholds, the lower threshold which is always
         /// the value programmed by SDAC\[5:0\] and the higher threshold that is:
         /// * `11`: 255 mV hysteresis: higher threshold = (SDAC value + 20hex)
@@ -303,7 +303,7 @@ impl Default for Slice {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Control0(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Control0(pub u8): FromRaw, IntoRaw {
         /// Self clearing bit to flush the content of the transmit FIFO
         pub tx_flush: bool [write_only] @ 6,
         /// Masks all interrupts, when false interrupts to host are enabled
@@ -337,7 +337,7 @@ impl Default for Control0 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Control1(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Control1(pub u8): FromRaw, IntoRaw {
         /// Enable SOP''_DEBUG (SOP double prime debug) packets, false for ignore
         pub ensop2db: bool @ 6,
         /// Enable SOP'_DEBUG (SOP prime debug) packets, false for ignore
@@ -361,7 +361,7 @@ impl Default for Control1 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Control2(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Control2(pub u8): FromRaw, IntoRaw {
         /// * `00`: Don’t go into the DISABLE state after one cycle of toggle
         /// * `01`: Wait between toggle cycles for tDIS time of 40 ms
         /// * `10`: Wait between toggle cycles for tDIS time of 80 ms
@@ -394,7 +394,7 @@ impl Default for Control2 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Control3(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Control3(pub u8): FromRaw, IntoRaw {
         /// Send a hard reset packet (highest priority)
         pub send_hard_reset: bool [write_only] @ 6,
 
@@ -428,7 +428,7 @@ impl Default for Control3 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Mask1(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Mask1(pub u8): FromRaw, IntoRaw {
         /// Mask I_VBUSOK interrupt bit
         pub m_vbusok: bool @ 7,
         /// Mask interrupt for a transition in CC bus activity
@@ -456,7 +456,7 @@ impl Default for Mask1 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Power(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Power(pub u8): FromRaw, IntoRaw {
         /// Enable internal oscillator
         pub internal_oscillator: bool @ 3,
         /// Measure block powered
@@ -476,7 +476,7 @@ impl Default for Power {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Reset(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Reset(pub u8): FromRaw, IntoRaw {
         /// Reset just the PD logic for both the PD transmitter and receiver
         pub pd_reset: bool @ 1,
 
@@ -493,7 +493,7 @@ impl Default for Reset {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct OcPreg(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct OcPreg(pub u8): FromRaw, IntoRaw {
         /// * `true`: OCP range between 100−800 mA (max_range = 800 mA)
         /// * `false`: OCP range between 10−80 mA (max_range = 80 mA)
         pub ocp_range: bool @ 3,
@@ -518,7 +518,7 @@ impl Default for OcPreg {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct MaskA(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct MaskA(pub u8): FromRaw, IntoRaw {
         /// Mask the I_OCP_TEMP interrupt
         pub m_ocp_temp: bool @ 7,
         /// Mask the I_TOGDONE interrupt
@@ -546,7 +546,7 @@ impl Default for MaskA {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct MaskB(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct MaskB(pub u8): FromRaw, IntoRaw {
         /// Mask the I_GCRCSENT interrupt
         pub m_gcrcsent: bool @ 0,
     }
@@ -560,7 +560,7 @@ impl Default for MaskB {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Control4(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Control4(pub u8): FromRaw, IntoRaw {
         /// In auto Rd only Toggle mode, stop Toggle at Audio accessory (Ra on both CC)
         pub tog_exit_aud: bool @ 0,
     }
@@ -574,7 +574,7 @@ impl Default for Control4 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Status0A(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Status0A(pub u8): FromRaw, IntoRaw {
         /// All soft reset packets with retries have failed to get a GoodCRC acknowledge. This
         /// status is cleared when a START_TX, TXON or SEND_HARD_RESET is executed
         pub softfail: bool [read_only] @ 5,
@@ -605,7 +605,7 @@ impl Default for Status0A {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Status1A(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Status1A(pub u8): FromRaw, IntoRaw {
         /// * `000`: Toggle logic running (processor has previously written TOGGLE=1)
         /// * `001`: Toggle functionality has settled to SRCon CC1 (STOP_SRC1 state)
         /// * `010`: Toggle functionality has settled to SRCon CC2 (STOP_SRC2 state)
@@ -637,7 +637,7 @@ impl Default for Status1A {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct InterruptA(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct InterruptA(pub u8): FromRaw, IntoRaw {
         /// Interrupt from either a OCP event on one of the VCONN switches or an over-temperature
         /// event
         pub i_ocp_temp: bool @ 7,
@@ -668,7 +668,7 @@ impl Default for InterruptA {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct InterruptB(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct InterruptB(pub u8): FromRaw, IntoRaw {
         /// Sent a GoodCRC acknowledge packet in response to an incoming packet that has the
         /// correct CRC value
         pub i_gcrcsent: bool @ 0,
@@ -683,7 +683,7 @@ impl Default for InterruptB {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Status0(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Status0(pub u8): FromRaw, IntoRaw {
         /// Interrupt occurs when VBUS transitions through vVBUSthr. This bit typically is used to
         /// recognize port partner during startup
         pub vbusok: bool [read_only] @ 7,
@@ -717,13 +717,13 @@ bitfield! {
         /// follows:
         ///
         /// * `00`: < 200 mV
-        /// * `01`: >200mV,<660mV
-        /// * `10`: >660mV,<1.23V
+        /// * `01`: > 200mV, < 660mV
+        /// * `10`: > 660mV, < 1.23V
         /// * `11`: > 1.23 V
         ///
         /// Note the software must measure these at an appropriate time, while there is no signaling
         /// activity on the selected CC line. BC_LVL is only defined when Measure block is on which
-        /// is when register bits PWR[2]=1 and either MEAS_CC1=1 or MEAS_CC2=1
+        /// is when register bits PWR\[2\]=1 and either MEAS_CC1=1 or MEAS_CC2=1
         pub bc_lvl: u8 [read_only] @ 0..=1,
     }
 }
@@ -736,7 +736,7 @@ impl Default for Status0 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Status1(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Status1(pub u8): FromRaw, IntoRaw {
         /// Indicates the last packet placed in the RxFIFO is type SOP'' (SOP double prime)
         pub rxsop2: bool [read_only] @ 7,
         /// Indicates the last packet placed in the RxFIFO is type SOP' (SOP prime)
@@ -764,7 +764,7 @@ impl Default for Status1 {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Interrupt(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Interrupt(pub u8): FromRaw, IntoRaw {
         /// Interrupt occurs when VBUS transitions through 4.5 V. This bit typically is used to recognize port partner during startup
         pub i_vbusok: bool @ 7,
 
@@ -802,7 +802,7 @@ impl Default for Interrupt {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Fifo(pub u8): Debug, FromRaw, IntoRaw {
+    pub struct Fifo(pub u8): FromRaw, IntoRaw {
         /// Writing to this register writes a byte into the transmit FIFO. Reading from this register reads from the receive FIFO.
         /// Each byte is a coded token. Or a token followed by a fixed number of packed data byte (see token coding in Table 41)
         pub token: u8 @ 0..7,

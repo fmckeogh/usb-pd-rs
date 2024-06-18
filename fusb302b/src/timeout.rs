@@ -1,7 +1,7 @@
 use crate::{Duration, Instant};
 
 /// Timeout wrapper
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct Timeout(Option<Instant>);
 
 impl Timeout {

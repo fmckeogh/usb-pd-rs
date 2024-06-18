@@ -1,4 +1,5 @@
-#[derive(Debug)]
+use usb_pd::pdo::PowerDataObject;
+
 pub enum Event {
     /// Protocol changed
     ProtocolChanged { protocol: Protocol },
@@ -6,7 +7,9 @@ pub enum Event {
     /// Source capabilities have changed
     ///
     /// Requires immediate response
-    SourceCapabilities { source_capabilities: () },
+    SourceCapabilities {
+        source_capabilities: [Option<PowerDataObject>; 10],
+    },
 
     /// Requested power has been accepted
     PowerAccepted,
@@ -18,7 +21,6 @@ pub enum Event {
     PowerReady { active_voltage_mv: u16 },
 }
 
-#[derive(Debug)]
 pub enum Protocol {
     /// No USB-PD communication, USB 2.0 5V only
     _20,

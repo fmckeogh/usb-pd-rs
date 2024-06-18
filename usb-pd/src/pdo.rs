@@ -1,6 +1,6 @@
-use proc_bitfield::bitfield;
+use {defmt::Format, proc_bitfield::bitfield};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Format)]
 pub enum PowerDataObject {
     FixedSupply(FixedSupply),
     Battery(Battery),
@@ -10,14 +10,14 @@ pub enum PowerDataObject {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct PowerDataObjectRaw(pub u32): Debug, FromRaw, IntoRaw {
+    pub struct PowerDataObjectRaw(pub u32): FromRaw, IntoRaw {
         pub kind: u8 @ 30..=31,
     }
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct FixedSupply(pub u32): Debug, FromRaw, IntoRaw {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct FixedSupply(pub u32): FromRaw, IntoRaw {
         /// Fixed supply
         pub kind: u8 @ 30..=31,
         /// Dual-role power
@@ -44,8 +44,8 @@ bitfield! {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct Battery(pub u32): Debug, FromRaw, IntoRaw {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct Battery(pub u32): FromRaw, IntoRaw {
         /// Battery
         pub kind: u8 @ 30..=31,
         /// Maximum Voltage in 50mV units
@@ -58,8 +58,8 @@ bitfield! {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct VariableSupply(pub u32): Debug, FromRaw, IntoRaw {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct VariableSupply(pub u32): FromRaw, IntoRaw {
         /// Variable supply (non-battery)
         pub kind: u8 @ 30..=31,
         /// Maximum Voltage in 50mV units
@@ -71,15 +71,15 @@ bitfield! {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Clone, Copy, Format)]
 pub enum AugmentedPowerDataObject {
     SPR(SPRProgrammablePowerSupply),
     EPR(EPRAdjustableVoltageSupply),
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct AugmentedPowerDataObjectRaw(pub u32): Debug, FromRaw, IntoRaw {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct AugmentedPowerDataObjectRaw(pub u32): FromRaw, IntoRaw {
         /// Augmented power data object
         pub kind: u8 @ 30..=31,
         pub supply: u8 @ 28..=29,
@@ -88,8 +88,8 @@ bitfield! {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct SPRProgrammablePowerSupply(pub u32): Debug, FromRaw, IntoRaw {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct SPRProgrammablePowerSupply(pub u32): FromRaw, IntoRaw {
         /// Augmented power data object
         pub kind: u8 @ 30..=31,
         /// SPR programmable power supply
@@ -105,8 +105,8 @@ bitfield! {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
-    pub struct EPRAdjustableVoltageSupply(pub u32): Debug, FromRaw, IntoRaw {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct EPRAdjustableVoltageSupply(pub u32): FromRaw, IntoRaw {
         /// Augmented power data object
         pub kind: u8 @ 30..=31,
         /// EPR adjustable voltage supply
