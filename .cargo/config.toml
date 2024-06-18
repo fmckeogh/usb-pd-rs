@@ -2,8 +2,4 @@
 target = "thumbv6m-none-eabi"
 
 [target.thumbv6m-none-eabi]
-rustflags = [
-    "-C", "linker=flip-link",
-    "-C", "link-arg=-Tdefmt.x",
-]
 runner = "probe-run --chip STM32F030F4Px"
