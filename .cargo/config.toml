@@ -2,4 +2,7 @@
 target = "thumbv6m-none-eabi"
 
 [target.thumbv6m-none-eabi]
-runner = "probe-run --chip STM32F030F4Px"
+runner = "probe-rs run --chip STM32F030F4Px"
+
+[env]
+DEFMT_LOG = "trace"
