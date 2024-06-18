@@ -141,6 +141,8 @@ impl<I2C: Write + WriteRead> SinkDriver for Fusb302b<I2C> {
             State::Connected { .. } => (),
             State::RetryWait => {
                 if self.timeout.is_expired() {
+                    // debug!("Retry wait");
+
                     self.establish_usb_20();
                 }
             }
@@ -339,9 +341,12 @@ impl<I2C: Write + WriteRead> Fusb302b<I2C> {
     }
 
     fn establish_usb_20(&mut self) {
+        // debug!("EU20");
         // Timeouts crash without this...
-        self.state = State::Measuring { cc_pin: CcPin::CC2 };
-        self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
+        // self.state = State::Measuring { cc_pin: CcPin::CC1 };
+        // self.init();
+        // self.timeout.start(Duration::millis(500));
+        // self.events.enqueue(DriverEvent::StateChanged).ok().unwrap();
 
         self.start_sink();
     }

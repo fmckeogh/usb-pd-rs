@@ -134,9 +134,22 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             Message::SourceCapabilities(caps) => {
                 self.notify(CallbackEvent::SourceCapabilitiesChanged(caps))
             }
-            Message::VendorDefined(payload) => {
-                warn!("UNHANDLED: Vendor Defined Message! {:?}, {:?}, {:?}", payload.vdm_type(), payload.command_type(), payload.command());
-            }
+            Message::VendorDefined(payload) => match payload {
+                crate::pdo::VDMHeader::Structured(hdr) => {
+                    warn!(
+                        "UNHANDLED: Structured VDM! CMD_TYPE: {:?}, CMD: {:?}",
+                        hdr.command_type(),
+                        hdr.command()
+                    );
+                }
+                crate::pdo::VDMHeader::Unstructured(hdr) => {
+                    warn!(
+                        "UNHANDLED: Unstructured VDM! SVID: {:x}, DATA: {:x}",
+                        hdr.standard_or_vid(),
+                        hdr.data()
+                    );
+                }
+            },
             Message::SoftReset => {
                 warn!("UNHANDLED: Soft RESET request.");
             }
