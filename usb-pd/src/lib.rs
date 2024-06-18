@@ -13,7 +13,7 @@ pub mod token;
 pub type Instant = fugit::Instant<u64, 1, 1000>;
 pub type Duration = fugit::Duration<u64, 1, 1000>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub enum CcPin {
     CC1,
     CC2,

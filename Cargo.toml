@@ -6,4 +6,3 @@ opt-level = "z"
 lto = "fat"
 codegen-units = 1
 debug = 2
-panic = "abort"
