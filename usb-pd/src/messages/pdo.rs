@@ -1,4 +1,6 @@
 use {
+    super::PdoState,
+    _20millivolts_mod::_20millivolts,
     _250milliwatts_mod::_250milliwatts,
     _50milliamperes_mod::_50milliamperes,
     _50millivolts_mod::_50millivolts,
@@ -8,6 +10,15 @@ use {
     proc_bitfield::bitfield,
     uom::si::{self, electric_current::centiampere, electric_potential::decivolt, power::watt},
 };
+
+mod _20millivolts_mod {
+    unit! {
+        system: uom::si;
+        quantity: uom::si::electric_potential;
+
+        @_20millivolts: 0.02; "_20mV", "_20millivolts", "_20millivolts";
+    }
+}
 
 mod _50milliamperes_mod {
     unit! {
@@ -34,6 +45,15 @@ mod _250milliwatts_mod {
 
         @_250milliwatts: 0.25; "_250mW", "_250milliwatts", "_250milliwatts";
     }
+}
+
+#[derive(Clone, Copy, Debug, Format)]
+pub enum PowerDataObjectType {
+    FixedSupply,
+    Battery,
+    VariableSupply,
+    PPS,
+    AVS,
 }
 
 #[derive(Clone, Copy, Debug, Format)]
@@ -227,6 +247,14 @@ impl EPRAdjustableVoltageSupply {
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct RawRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
+        /// Valid range 1..=14
+        pub object_position: u8 @ 28..=31,
+    }
+}
+
+bitfield! {
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
     pub struct FixedVariableRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
         /// Valid range 1..=14
         pub object_position: u8 @ 28..=31,
@@ -236,8 +264,8 @@ bitfield! {
         pub no_usb_suspend: bool @ 24,
         pub unchunked_extended_messages_supported: bool @ 23,
         pub epr_mode_capable: bool @ 22,
-        pub operating_current: u16 @ 10..=19,
-        pub max_operating_current: u16 @ 0..=9,
+        pub raw_operating_current: u16 @ 10..=19,
+        pub raw_max_operating_current: u16 @ 0..=9,
     }
 }
 
@@ -245,11 +273,19 @@ impl FixedVariableRequestDataObject {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
     }
+
+    pub fn operating_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<centiampere>(self.raw_operating_current())
+    }
+
+    pub fn max_operating_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<centiampere>(self.raw_max_operating_current())
+    }
 }
 
 bitfield! {
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct BatteryRequestDataObject(pub u32): FromRaw, IntoRaw {
+    pub struct BatteryRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
         /// Object position (0000b and 1110b…1111b are Reserved and Shall Not be used)
         pub object_position: u8 @ 28..=31,
         /// GiveBackFlag = 0
@@ -265,9 +301,9 @@ bitfield! {
         /// EPR mode capable
         pub epr_mode_capable: bool @ 22,
         /// Operating power in 250mW units
-        pub operating_power: u16 @ 10..=19,
+        pub raw_operating_power: u16 @ 10..=19,
         /// Maximum operating power in 250mW units
-        pub max_operating_power: u16 @ 0..=9,
+        pub raw_max_operating_power: u16 @ 0..=9,
     }
 }
 
@@ -275,11 +311,19 @@ impl BatteryRequestDataObject {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
     }
+
+    pub fn operating_power(&self) -> si::u32::Power {
+        si::u32::Power::new::<_250milliwatts>(self.raw_operating_power().into())
+    }
+
+    pub fn max_operating_power(&self) -> si::u32::Power {
+        si::u32::Power::new::<_250milliwatts>(self.raw_max_operating_power().into())
+    }
 }
 
 bitfield!(
     #[derive(Clone, Copy, PartialEq, Eq, Format)]
-    pub struct PPSRequestDataObject(pub u32): FromRaw, IntoRaw {
+    pub struct PPSRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
         /// Object position (0000b and 1110b…1111b are Reserved and Shall Not be used)
         pub object_position: u8 @ 28..=31,
         /// Capability mismatch
@@ -293,15 +337,82 @@ bitfield!(
         /// EPR mode capable
         pub epr_mode_capable: bool @ 22,
         /// Output voltage in 20mV units
-        pub output_voltage: u16 @ 9..=20,
+        pub raw_output_voltage: u16 @ 9..=20,
         /// Operating current in 50mA units
-        pub operating_current: u16 @ 0..=6,
+        pub raw_operating_current: u16 @ 0..=6,
     }
 );
 
 impl PPSRequestDataObject {
     pub fn to_bytes(&self, buf: &mut [u8]) {
         LittleEndian::write_u32(buf, self.0);
+    }
+
+    pub fn output_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_20millivolts>(self.raw_output_voltage())
+    }
+
+    pub fn operating_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<_50milliamperes>(self.raw_operating_current())
+    }
+}
+
+bitfield!(
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
+    pub struct AVSRequestDataObject(pub u32): Debug, FromRaw, IntoRaw {
+        /// Object position (0000b and 1110b…1111b are Reserved and Shall Not be used)
+        pub object_position: u8 @ 28..=31,
+        /// Capability mismatch
+        pub capability_mismatch: bool @ 26,
+        /// USB communications capable
+        pub usb_communications_capable: bool @ 25,
+        /// No USB Suspend
+        pub no_usb_suspend: bool @ 24,
+        /// Unchunked extended messages supported
+        pub unchunked_extended_messages_supported: bool @ 23,
+        /// EPR mode capable
+        pub epr_mode_capable: bool @ 22,
+        /// Output voltage in 20mV units
+        pub raw_output_voltage: u16 @ 9..=20,
+        /// Operating current in 50mA units
+        pub raw_operating_current: u16 @ 0..=6,
+    }
+);
+
+impl AVSRequestDataObject {
+    pub fn to_bytes(&self, buf: &mut [u8]) {
+        LittleEndian::write_u32(buf, self.0);
+    }
+
+    pub fn output_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<_20millivolts>(self.raw_output_voltage())
+    }
+
+    pub fn operating_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<_50milliamperes>(self.raw_operating_current())
+    }
+}
+
+#[derive(Debug, Clone, Format)]
+pub enum Request {
+    FixedSupply(FixedVariableRequestDataObject),
+    VariableSupply(FixedVariableRequestDataObject),
+    Battery(BatteryRequestDataObject),
+    PPS(PPSRequestDataObject),
+    AVS(AVSRequestDataObject),
+    Unknown(RawRequestDataObject),
+}
+
+impl Request {
+    pub fn object_position(&self) -> u8 {
+        match self {
+            Request::FixedSupply(p) => p.object_position(),
+            Request::VariableSupply(p) => p.object_position(),
+            Request::Battery(p) => p.object_position(),
+            Request::PPS(p) => p.object_position(),
+            Request::AVS(p) => p.object_position(),
+            Request::Unknown(p) => p.object_position(),
+        }
     }
 }
 
@@ -357,5 +468,35 @@ impl SourceCapabilities {
 
     pub fn pdos(&self) -> &[PowerDataObject] {
         &self.0
+    }
+}
+
+impl PdoState for SourceCapabilities {
+    fn pdo_at_object_position(&self, position: u8) -> Option<PowerDataObjectType> {
+        self.pdos()
+            .get(position.saturating_sub(1) as usize)
+            .and_then(|pdo| match pdo {
+                PowerDataObject::FixedSupply(_) => Some(PowerDataObjectType::FixedSupply),
+                PowerDataObject::Battery(_) => Some(PowerDataObjectType::Battery),
+                PowerDataObject::VariableSupply(_) => Some(PowerDataObjectType::VariableSupply),
+                PowerDataObject::AugmentedPowerDataObject(augmented) => match augmented {
+                    AugmentedPowerDataObject::SPR(_) => Some(PowerDataObjectType::PPS),
+                    AugmentedPowerDataObject::EPR(_) => Some(PowerDataObjectType::AVS),
+                    AugmentedPowerDataObject::Unknown(_) => None,
+                },
+                PowerDataObject::Unknown(_) => None,
+            })
+    }
+}
+
+impl PdoState for Option<SourceCapabilities> {
+    fn pdo_at_object_position(&self, position: u8) -> Option<PowerDataObjectType> {
+        self.as_ref().pdo_at_object_position(position)
+    }
+}
+
+impl PdoState for Option<&SourceCapabilities> {
+    fn pdo_at_object_position(&self, position: u8) -> Option<PowerDataObjectType> {
+        self.and_then(|s| s.pdo_at_object_position(position))
     }
 }
