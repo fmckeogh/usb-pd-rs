@@ -4,6 +4,7 @@
 
 use {
     crate::DEVICE_ADDRESS,
+    defmt::{trace, Format},
     embedded_hal::blocking::i2c::{Read, Write, WriteRead},
     proc_bitfield::bitfield,
     usb_pd::{DataRole, PowerRole},
@@ -86,26 +87,27 @@ impl<I2C: Read + Write + WriteRead> Registers<I2C> {
     }
 
     fn write_register_raw(&mut self, register: u8, value: u8) {
-        self.i2c.write(DEVICE_ADDRESS, &[register, value]).ok();
+        assert!(self.i2c.write(DEVICE_ADDRESS, &[register, value]).is_ok());
     }
 
     fn read_register_raw(&mut self, register: u8) -> u8 {
         let mut buffer = [0u8];
-        self.i2c
+        assert!(self
+            .i2c
             .write_read(DEVICE_ADDRESS, &[register], &mut buffer)
-            .ok();
+            .is_ok());
         buffer[0]
     }
 
     pub fn read_fifo(&mut self, buf: &mut [u8]) {
-        self.i2c
+        assert!(self
+            .i2c
             .write_read(DEVICE_ADDRESS, &[Register::Fifo as u8], buf)
-            .ok();
+            .is_ok());
     }
 
     pub fn write_fifo(&mut self, buf: &mut [u8]) {
-        buf[0] = Register::Fifo as u8;
-        self.i2c.write(DEVICE_ADDRESS, buf).ok();
+        assert!(self.i2c.write(DEVICE_ADDRESS, buf).is_ok());
     }
 
     generate_register_accessors!(
@@ -690,7 +692,7 @@ impl Default for InterruptB {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
     pub struct Status0(pub u8): FromRaw, IntoRaw {
         /// Interrupt occurs when VBUS transitions through vVBUSthr. This bit typically is used to
         /// recognize port partner during startup
@@ -743,7 +745,7 @@ impl Default for Status0 {
 }
 
 bitfield! {
-    #[derive(Clone, Copy, PartialEq, Eq)]
+    #[derive(Clone, Copy, PartialEq, Eq, Format)]
     pub struct Status1(pub u8): FromRaw, IntoRaw {
         /// Indicates the last packet placed in the RxFIFO is type SOP'' (SOP double prime)
         pub rxsop2: bool [read_only] @ 7,
