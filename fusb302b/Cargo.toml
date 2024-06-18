@@ -1,0 +1,9 @@
+[package]
+name = "fusb302b"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+embedded-hal = "0.2.7"
+paste = "1.0.12"
+proc-bitfield = "0.2.2"
