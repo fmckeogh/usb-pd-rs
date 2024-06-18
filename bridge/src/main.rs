@@ -1,36 +1,29 @@
 #![no_main]
 #![no_std]
 
-use {
-    defmt::{error, trace},
-    defmt_rtt as _,
-    fusb302b::callback::{Event, Response},
-    rtic::app,
-    usb_pd::pdo::PowerDataObject,
-};
+use {defmt::error, defmt_rtt as _, rtic::app};
 
 mod rgb;
 
 #[app(device = stm32f0xx_hal::pac, peripherals = true, dispatchers = [SPI1])]
 mod app {
+    use core::mem::MaybeUninit;
+
     use {
-        crate::{
-            callback,
-            rgb::{Color, Rgb},
-        },
-        bitbang_hal::i2c::I2cBB,
+        crate::rgb::{Color, Rgb},
         defmt::{info, trace},
-        fusb302b::Fusb302b,
         stm32f0xx_hal::{
             gpio::{
-                gpioa::{self, PA10, PA5, PA6, PA7, PA9},
-                OpenDrain, Output, PushPull,
+                gpioa::{self, PA5, PA6, PA7},
+                Output, PushPull,
             },
-            pac::TIM3,
             prelude::*,
-            timers::Timer,
         },
         systick_monotonic::Systick,
+        zy12pdn_wrapper::root::{
+            sink_callback,
+            usb_pd::{i2c_bit_bang, pd_sink},
+        },
     };
 
     #[shared]
@@ -39,7 +32,6 @@ mod app {
     #[local]
     struct Local {
         led: Rgb<PA5<Output<PushPull>>, PA6<Output<PushPull>>, PA7<Output<PushPull>>>,
-        pd: Fusb302b<I2cBB<PA10<Output<PushPull>>, PA9<Output<OpenDrain>>, Timer<TIM3>>>,
     }
 
     #[monotonic(binds = SysTick, default = true)]
@@ -79,82 +71,32 @@ mod app {
         let mut led = Rgb::new(pa5, pa6, pa7);
         led.set(Color::White);
 
-        let mut pd = {
-            let clk = Timer::tim3(cx.device.TIM3, 400.khz(), &mut rcc);
-            let i2c = I2cBB::new(scl, sda, clk);
-
-            Fusb302b::new(i2c, &callback)
-        };
-
-        pd.init(monotonics::now());
-
         info!("init done");
 
-        (Shared {}, Local { led, pd }, init::Monotonics(mono))
+        let mut i2c = unsafe { MaybeUninit::<i2c_bit_bang>::uninit().assume_init() };
+        unsafe { i2c.init() };
+
+        trace!("i2c init");
+
+        let mut power_sink = unsafe { MaybeUninit::<pd_sink>::uninit().assume_init() };
+        unsafe { power_sink.set_event_callback(Some(sink_callback)) }
+        trace!("sink calback");
+        unsafe { power_sink.init() };
+        trace!("i2c init");
+
+        loop {
+            unsafe { power_sink.poll() };
+        }
+
+        (Shared {}, Local { led }, init::Monotonics(mono))
     }
 
-    #[idle(local = [pd, led])]
+    #[idle(local = [led])]
     fn idle(cx: idle::Context) -> ! {
         loop {
-            cx.local.pd.poll(monotonics::now());
+            //cx.local.pd.poll(monotonics::now());
         }
     }
-}
-
-fn callback(event: Event) -> Option<Response> {
-    static mut IS_CONNECTED: bool = false;
-
-    match event {
-        Event::ProtocolChanged { .. } => {
-            trace!("protocol changed");
-            unsafe { IS_CONNECTED = false };
-        }
-        Event::PowerAccepted => {
-            trace!("power accepted");
-            unsafe { IS_CONNECTED = true };
-        }
-        Event::PowerRejected => trace!("power rejected"),
-
-        Event::PowerReady { active_voltage_mv } => trace!("power ready {}mV", active_voltage_mv),
-
-        Event::SourceCapabilities {
-            source_capabilities,
-        } => {
-            let mut voltage = 0;
-            let mut current = 0;
-            let mut index = 0;
-
-            for (i, cap) in source_capabilities
-                .into_iter()
-                .filter(Option::is_some)
-                .enumerate()
-            {
-                match cap.unwrap() {
-                    PowerDataObject::Battery(battery) => {
-                        trace!("battery: {}", battery.max_voltage())
-                    }
-                    PowerDataObject::FixedSupply(fixed) => {
-                        trace!("fixed: {} {}", fixed.voltage(), fixed.max_current());
-                        if fixed.voltage() > voltage {
-                            index = i;
-                            voltage = fixed.voltage();
-                            current = fixed.max_current();
-                        }
-                    }
-                    PowerDataObject::VariableSupply(variable) => {
-                        trace!("variable: {}", variable.max_voltage())
-                    }
-                    PowerDataObject::AugmentedPowerDataObject(_) => {
-                        trace!("aug")
-                    }
-                }
-            }
-
-            return Some(Response::Request { index, current });
-        }
-    }
-
-    None
 }
 
 #[panic_handler]

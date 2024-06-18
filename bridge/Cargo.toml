@@ -18,3 +18,4 @@ bitbang-hal = "0.3.2"
 
 fusb302b = { path = "../fusb302b" }
 usb-pd = { path = "../usb-pd" }
+zy12pdn-wrapper = { path = "../zy12pdn-wrapper" }
