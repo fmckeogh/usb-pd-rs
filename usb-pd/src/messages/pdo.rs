@@ -181,16 +181,16 @@ bitfield! {
 }
 
 impl SPRProgrammablePowerSupply {
-    pub fn max_voltage(&self) -> si::u8::ElectricPotential {
-        si::u8::ElectricPotential::new::<decivolt>(self.raw_max_voltage())
+    pub fn max_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<decivolt>(self.raw_max_voltage().into())
     }
 
-    pub fn min_voltage(&self) -> si::u8::ElectricPotential {
-        si::u8::ElectricPotential::new::<decivolt>(self.raw_min_voltage())
+    pub fn min_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<decivolt>(self.raw_min_voltage().into())
     }
 
-    pub fn max_current(&self) -> si::u8::ElectricCurrent {
-        si::u8::ElectricCurrent::new::<_50milliamperes>(self.raw_max_current())
+    pub fn max_current(&self) -> si::u16::ElectricCurrent {
+        si::u16::ElectricCurrent::new::<_50milliamperes>(self.raw_max_current().into())
     }
 }
 
@@ -216,8 +216,8 @@ impl EPRAdjustableVoltageSupply {
         si::u16::ElectricPotential::new::<decivolt>(self.raw_max_voltage())
     }
 
-    pub fn min_voltage(&self) -> si::u8::ElectricPotential {
-        si::u8::ElectricPotential::new::<decivolt>(self.raw_min_voltage())
+    pub fn min_voltage(&self) -> si::u16::ElectricPotential {
+        si::u16::ElectricPotential::new::<decivolt>(self.raw_min_voltage().into())
     }
 
     pub fn pd_power(&self) -> si::u8::Power {
