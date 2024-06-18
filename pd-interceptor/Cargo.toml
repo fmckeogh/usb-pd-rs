@@ -3,6 +3,10 @@ name = "pd-interceptor"
 version = "0.1.0"
 edition = "2021"
 
+[[bin]]
+harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+test = false
+
 [dependencies]
 cortex-m = { version = "0.7.7", features = ["critical-section-single-core"] }
 cortex-m-rt = "0.7.4"
