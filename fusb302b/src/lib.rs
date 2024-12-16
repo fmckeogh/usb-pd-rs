@@ -64,8 +64,15 @@ impl From<&State> for DriverState {
     }
 }
 
-pub struct RxError {}
-pub struct TxError {}
+/// Types of receive errors.
+///
+/// FIXME: Implement error handling.
+pub enum RxError {}
+
+/// Types of transmit errors.
+///
+/// FIXME: Implement error handling.
+pub enum TxError {}
 
 impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
     type RxError = RxError;
