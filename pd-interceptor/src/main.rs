@@ -29,7 +29,8 @@ bind_interrupts!(struct Irqs {
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
 });
 
-async fn receive_event<DRIVER: Driver>(
+// Wait for an event on the sink, then form a request from it, if applicable.
+async fn receive_request<DRIVER: Driver>(
     sink: &mut Sink<DRIVER>,
 ) -> Result<Option<Request>, DRIVER::RxError> {
     if let Some(event) = sink.wait_for_event(Instant::now()).await? {
@@ -76,11 +77,11 @@ async fn main(_spawner: Spawner) {
     defmt::info!("PD init done");
 
     loop {
-        if let Ok(Some(req)) = receive_event(&mut pd1).await {
+        if let Ok(Some(req)) = receive_request(&mut pd1).await {
             _ = pd1.request(req).await;
         }
 
-        if let Ok(Some(req)) = receive_event(&mut pd2).await {
+        if let Ok(Some(req)) = receive_request(&mut pd2).await {
             _ = pd2.request(req).await;
         }
     }
