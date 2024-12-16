@@ -20,11 +20,7 @@ use {
 pub trait Driver {
     fn init(&mut self) -> impl Future<Output = ()>;
 
-    fn poll(&mut self, now: Instant) -> impl Future<Output = ()>;
-
-    fn get_pending_message(&mut self) -> Option<Message>;
-
-    fn did_change_protocol(&mut self) -> bool;
+    fn receive_message(&mut self, now: Instant) -> impl Future<Output = Option<Message>>;
 
     fn send_message(&mut self, header: Header, payload: &[u8]) -> impl Future<Output = ()>;
 
@@ -129,19 +125,12 @@ impl<DRIVER: Driver> Sink<DRIVER> {
 
     /// Call continously until `None` is returned.
     pub async fn poll(&mut self, now: Instant) -> Option<Event> {
-        // poll inner driver
-        self.driver.poll(now).await;
-
-        if let Some(message) = self.driver.get_pending_message() {
+        if let Some(message) = self.driver.receive_message(now).await {
             return self.handle_msg(message);
         };
 
-        if self.driver.did_change_protocol() {
-            if self.update_protocol() {
-                Some(Event::ProtocolChanged)
-            } else {
-                None
-            }
+        if self.update_protocol() {
+            Some(Event::ProtocolChanged)
         } else {
             None
         }
