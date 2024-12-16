@@ -64,7 +64,13 @@ impl From<&State> for DriverState {
     }
 }
 
+pub struct RxError {}
+pub struct TxError {}
+
 impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
+    type RxError = RxError;
+    type TxError = TxError;
+
     async fn init(&mut self) {
         // full reset
         self.registers
@@ -142,7 +148,7 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
         self.start_sink().await;
     }
 
-    async fn receive_message(&mut self, now: Instant) -> Option<Message> {
+    async fn receive_message(&mut self, now: Instant) -> Result<Option<Message>, Self::RxError> {
         self.timeout.update(now);
 
         self.check_for_interrupts().await;
@@ -168,10 +174,14 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
             }
         }
 
-        self.message.take()
+        Ok(self.message.take())
     }
 
-    async fn send_message(&mut self, mut header: Header, payload: &[u8]) {
+    async fn send_message(
+        &mut self,
+        mut header: Header,
+        payload: &[u8],
+    ) -> Result<(), Self::TxError> {
         let State::Connected { message_id } = &mut self.state else {
             panic!();
         };
@@ -222,6 +232,8 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
             .await;
 
         message_id.inc();
+
+        Ok(())
     }
 
     fn state(&mut self) -> DriverState {
