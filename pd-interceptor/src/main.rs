@@ -18,7 +18,7 @@ use {
     uom::si::{electric_current::milliampere, electric_potential::millivolt},
     usb_pd::{
         messages::pdo::PowerDataObject,
-        sink::{Event, Request, Sink},
+        sink::{Driver, Event, Request, Sink},
     },
 };
 
@@ -28,6 +28,17 @@ bind_interrupts!(struct Irqs {
     I2C2_EV => i2c::EventInterruptHandler<peripherals::I2C2>;
     I2C2_ER => i2c::ErrorInterruptHandler<peripherals::I2C2>;
 });
+
+// Wait for an event on the sink, then form a request from it, if applicable.
+async fn receive_request<DRIVER: Driver>(
+    sink: &mut Sink<DRIVER>,
+) -> Result<Option<Request>, DRIVER::RxError> {
+    if let Some(event) = sink.wait_for_event(Instant::now()).await? {
+        Ok(handle_event(event))
+    } else {
+        Ok(None)
+    }
+}
 
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
@@ -66,23 +77,13 @@ async fn main(_spawner: Spawner) {
     defmt::info!("PD init done");
 
     loop {
-        if let Some(req) = pd1
-            .poll(Instant::now())
-            .await // handle event if one was returned from sink
-            .and_then(handle_event)
-        {
-            // make request if one was returned from handler
-            pd1.request(req).await;
-        };
+        if let Ok(Some(req)) = receive_request(&mut pd1).await {
+            _ = pd1.request(req).await;
+        }
 
-        if let Some(req) = pd2
-            .poll(Instant::now())
-            .await // handle event if one was returned from sink
-            .and_then(handle_event)
-        {
-            // make request if one was returned from handler
-            pd2.request(req).await;
-        };
+        if let Ok(Some(req)) = receive_request(&mut pd2).await {
+            _ = pd2.request(req).await;
+        }
     }
 }
 

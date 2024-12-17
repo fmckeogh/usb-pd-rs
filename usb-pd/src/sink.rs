@@ -18,15 +18,21 @@ use {
 };
 
 pub trait Driver {
+    type RxError;
+    type TxError;
+
     fn init(&mut self) -> impl Future<Output = ()>;
 
-    fn poll(&mut self, now: Instant) -> impl Future<Output = ()>;
+    fn receive_message(
+        &mut self,
+        now: Instant,
+    ) -> impl Future<Output = Result<Option<Message>, Self::RxError>>;
 
-    fn get_pending_message(&mut self) -> Option<Message>;
-
-    fn did_change_protocol(&mut self) -> bool;
-
-    fn send_message(&mut self, header: Header, payload: &[u8]) -> impl Future<Output = ()>;
+    fn send_message(
+        &mut self,
+        header: Header,
+        payload: &[u8],
+    ) -> impl Future<Output = Result<(), Self::TxError>>;
 
     fn state(&mut self) -> DriverState;
 }
@@ -127,27 +133,20 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         self.update_protocol();
     }
 
-    /// Call continously until `None` is returned.
-    pub async fn poll(&mut self, now: Instant) -> Option<Event> {
-        // poll inner driver
-        self.driver.poll(now).await;
-
-        if let Some(message) = self.driver.get_pending_message() {
-            return self.handle_msg(message);
+    /// Call continously until `Ok(None)` is returned.
+    pub async fn wait_for_event(&mut self, now: Instant) -> Result<Option<Event>, DRIVER::RxError> {
+        if let Some(message) = self.driver.receive_message(now).await? {
+            return Ok(self.handle_msg(message));
         };
 
-        if self.driver.did_change_protocol() {
-            if self.update_protocol() {
-                Some(Event::ProtocolChanged)
-            } else {
-                None
-            }
+        if self.update_protocol() {
+            Ok(Some(Event::ProtocolChanged))
         } else {
-            None
+            Ok(None)
         }
     }
 
-    pub async fn request(&mut self, request: Request) {
+    pub async fn request(&mut self, request: Request) -> Result<(), DRIVER::TxError> {
         match request {
             Request::RequestPower { index, current } => self.request_power(current, index).await,
 
@@ -222,8 +221,9 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 //     product_type_dfp.to_bytes(&mut payload[24..32]);
                 // }
                 debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload).await;
+                self.driver.send_message(header, &payload).await?;
                 debug!("Sent VDM");
+                Ok(())
             }
             Request::REQDiscoverSVIDS => {
                 debug!("REQDiscoverSVIDS");
@@ -247,8 +247,9 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload).await;
+                self.driver.send_message(header, &payload).await?;
                 debug!("Sent VDM");
+                Ok(())
             }
             Request::REQDiscoverIdentity => {
                 debug!("REQDiscoverIdentity");
@@ -272,8 +273,9 @@ impl<DRIVER: Driver> Sink<DRIVER> {
                 );
                 vdm_header_vdo.to_bytes(&mut payload[0..4]);
                 debug!("Sending VDM {:x}", payload);
-                self.driver.send_message(header, &payload).await;
+                self.driver.send_message(header, &payload).await?;
                 debug!("Sent VDM");
+                Ok(())
             }
         }
     }
@@ -340,7 +342,11 @@ impl<DRIVER: Driver> Sink<DRIVER> {
         }
     }
 
-    async fn request_power(&mut self, max_current: u16, index: usize) {
+    async fn request_power(
+        &mut self,
+        max_current: u16,
+        index: usize,
+    ) -> Result<(), DRIVER::TxError> {
         // Create 'request' message
         let mut payload = [0; 4];
 
@@ -353,7 +359,7 @@ impl<DRIVER: Driver> Sink<DRIVER> {
             .with_port_power_role(PowerRole::Sink);
 
         // Send message
-        self.driver.send_message(header, &payload).await;
+        self.driver.send_message(header, &payload).await
     }
 
     fn set_request_payload_fixed(&mut self, payload: &mut [u8], obj_pos: u8, mut current: u16) {

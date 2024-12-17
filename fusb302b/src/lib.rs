@@ -36,9 +36,6 @@ pub struct Fusb302b<I2C> {
     /// Pending message received by driver
     message: Option<Message>,
 
-    /// Flag set when protocol is changed, reset on next poll
-    did_change_protocol: bool,
-
     /// Current driver state
     state: State,
 }
@@ -67,7 +64,20 @@ impl From<&State> for DriverState {
     }
 }
 
+/// Types of receive errors.
+///
+/// FIXME: Implement error handling.
+pub enum RxError {}
+
+/// Types of transmit errors.
+///
+/// FIXME: Implement error handling.
+pub enum TxError {}
+
 impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
+    type RxError = RxError;
+    type TxError = TxError;
+
     async fn init(&mut self) {
         // full reset
         self.registers
@@ -141,12 +151,11 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
             .await;
         self.state = State::Measuring { cc_pin: CcPin::CC1 };
         self.message = None;
-        self.did_change_protocol = false;
 
         self.start_sink().await;
     }
 
-    async fn poll(&mut self, now: Instant) {
+    async fn receive_message(&mut self, now: Instant) -> Result<Option<Message>, Self::RxError> {
         self.timeout.update(now);
 
         self.check_for_interrupts().await;
@@ -171,19 +180,15 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
                 }
             }
         }
+
+        Ok(self.message.take())
     }
 
-    fn get_pending_message(&mut self) -> Option<Message> {
-        self.message.take()
-    }
-
-    fn did_change_protocol(&mut self) -> bool {
-        let res = self.did_change_protocol;
-        self.did_change_protocol = false;
-        res
-    }
-
-    async fn send_message(&mut self, mut header: Header, payload: &[u8]) {
+    async fn send_message(
+        &mut self,
+        mut header: Header,
+        payload: &[u8],
+    ) -> Result<(), Self::TxError> {
         let State::Connected { message_id } = &mut self.state else {
             panic!();
         };
@@ -234,6 +239,8 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
             .await;
 
         message_id.inc();
+
+        Ok(())
     }
 
     fn state(&mut self) -> DriverState {
@@ -247,7 +254,6 @@ impl<I2C: I2c> Fusb302b<I2C> {
             registers: Registers::new(i2c),
             timeout: Timeout::new(),
             message: None,
-            did_change_protocol: false,
             state: State::Measuring { cc_pin: CcPin::CC1 },
         }
     }
@@ -373,8 +379,6 @@ impl<I2C: I2c> Fusb302b<I2C> {
         self.init().await;
         self.state = State::RetryWait;
         self.timeout.start(Duration::from_millis(500));
-
-        self.did_change_protocol = true;
     }
 
     async fn establish_usb_20(&mut self) {
@@ -459,7 +463,6 @@ impl<I2C: I2c> Fusb302b<I2C> {
         };
         self.timeout.cancel();
         debug!("USB PD comm");
-        self.did_change_protocol = true;
     }
 
     async fn read_message(&mut self, header: &mut u16, payload: &mut [u8]) {
