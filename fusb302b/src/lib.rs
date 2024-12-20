@@ -9,7 +9,7 @@ use {
         timeout::Timeout,
     },
     defmt::{debug, warn},
-    embassy_time::{Duration, Instant},
+    embassy_time::Duration,
     embedded_hal_async::i2c::I2c,
     usb_pd::{
         header::{ControlMessageType, Header, MessageType},
@@ -155,8 +155,8 @@ impl<I2C: I2c> SinkDriver for Fusb302b<I2C> {
         self.start_sink().await;
     }
 
-    async fn receive_message(&mut self, now: Instant) -> Result<Option<Message>, Self::RxError> {
-        self.timeout.update(now);
+    async fn receive_message(&mut self) -> Result<Option<Message>, Self::RxError> {
+        self.timeout.update();
 
         self.check_for_interrupts().await;
 

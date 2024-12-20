@@ -13,7 +13,6 @@ use {
     },
     core::future::Future,
     defmt::{debug, warn, Format},
-    embassy_time::Instant,
     heapless::Vec,
 };
 
@@ -23,10 +22,7 @@ pub trait Driver {
 
     fn init(&mut self) -> impl Future<Output = ()>;
 
-    fn receive_message(
-        &mut self,
-        now: Instant,
-    ) -> impl Future<Output = Result<Option<Message>, Self::RxError>>;
+    fn receive_message(&mut self) -> impl Future<Output = Result<Option<Message>, Self::RxError>>;
 
     fn send_message(
         &mut self,
@@ -134,8 +130,8 @@ impl<DRIVER: Driver> Sink<DRIVER> {
     }
 
     /// Call continously until `Ok(None)` is returned.
-    pub async fn wait_for_event(&mut self, now: Instant) -> Result<Option<Event>, DRIVER::RxError> {
-        if let Some(message) = self.driver.receive_message(now).await? {
+    pub async fn wait_for_event(&mut self) -> Result<Option<Event>, DRIVER::RxError> {
+        if let Some(message) = self.driver.receive_message().await? {
             return Ok(self.handle_msg(message));
         };
 
