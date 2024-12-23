@@ -16,8 +16,8 @@ impl Timeout {
     }
 
     /// Update the current time
-    pub fn update(&mut self, now: Instant) {
-        self.now = now;
+    pub fn update(&mut self) {
+        self.now = Instant::now();
     }
 
     /// Start a timeout some duration in the future

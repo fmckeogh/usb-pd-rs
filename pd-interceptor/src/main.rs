@@ -12,7 +12,6 @@ use {
         time::Hertz,
         Config,
     },
-    embassy_time::Instant,
     fusb302b::Fusb302b,
     panic_probe as _,
     uom::si::{electric_current::milliampere, electric_potential::millivolt},
@@ -33,7 +32,7 @@ bind_interrupts!(struct Irqs {
 async fn receive_request<DRIVER: Driver>(
     sink: &mut Sink<DRIVER>,
 ) -> Result<Option<Request>, DRIVER::RxError> {
-    if let Some(event) = sink.wait_for_event(Instant::now()).await? {
+    if let Some(event) = sink.wait_for_event().await? {
         Ok(handle_event(event))
     } else {
         Ok(None)
