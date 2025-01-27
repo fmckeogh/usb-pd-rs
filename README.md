@@ -1,5 +1,7 @@
 # usb-pd-rs
 
+## *Archived*: use https://github.com/elagil/usbpd instead:)
+
 [![CI](https://github.com/fmckeogh/usb-pd-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/fmckeogh/usb-pd-rs/actions/workflows/ci.yml)
 [![usb_pd docs](https://img.shields.io/badge/docs(HEAD)-usb_pd-blue)](https://fmckeogh.github.io/usb-pd-rs/usb_pd/)
 ![usb-pd](https://img.shields.io/crates/v/usb-pd.svg)
